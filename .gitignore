@@ -1,0 +1,29 @@
+# client
+node_modules
+dist
+dist-ssr
+*.local
+logs
+*.log
+
+
+# SERVER
+coverage/
+tmp/
+
+# COMMON
+.env
+.env.*
+!.env.example
+trash/
+trash.txt
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
