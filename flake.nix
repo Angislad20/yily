@@ -31,6 +31,9 @@
           default = pkgs.mkShell {
             buildInputs = devPkgs;
             shellHook = ''
+              unset GOROOT
+              (cd client && npm install --silent)
+              (cd server && go mod tidy)
               echo "welcome to the ${name} v${version} dev shell!"
             '';
           };
