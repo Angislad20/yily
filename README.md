@@ -4,14 +4,6 @@
   </picture>
 </p>
 
-<!--
-<p align="center">
-  <a href="https://github.com/DarthSim/overmind/releases/latest"><img alt="Release" src="https://img.shields.io/github/release/DarthSim/overmind.svg?style=for-the-badge" /></a>
-  <a href="https://github.com/DarthSim/overmind/actions"><img alt="GH Build" src="https://img.shields.io/github/actions/workflow/status/DarthSim/overmind/build.yml?branch=master&label=Build&style=for-the-badge" /></a>
-  <a href="https://github.com/DarthSim/overmind/actions"><img alt="GH Lint" src="https://img.shields.io/github/actions/workflow/status/DarthSim/overmind/lint.yml?branch=master&label=Lint&style=for-the-badge" /></a>
-</p> -->
-
-
 **Yily** is a lightweight and fast **open-source secret management application** designed to help you securely store and manage sensitive information such as API keys, passwords, tokens, and other secrets.
 
 The project was born from a simple need: having a **self-hosted secret management solution that is easy to deploy, simple to use, and efficient**, without the complexity that can come with more advanced solutions such as HashiCorp Vault or Infisical.
