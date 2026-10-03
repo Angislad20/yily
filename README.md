@@ -13,8 +13,11 @@
 
 
 **Yily** is a lightweight and fast **open-source secret management application** designed to help you securely store and manage sensitive information such as API keys, passwords, tokens, and other secrets.
+
 The project was born from a simple need: having a **self-hosted secret management solution that is easy to deploy, simple to use, and efficient**, without the complexity that can come with more advanced solutions such as HashiCorp Vault or Infisical.
+
 Yily aims to provide a good balance between **simplicity, performance, security, and self-hosting**. It is designed for developers and teams who want to keep control of their secrets and infrastructure while using a straightforward and lightweight solution.
+
 The project is still in its **early stages of development**, and the goal is to build it together with the open-source community. Contributions, ideas, feedback, and discussions are very welcome.
 
 If you are interested in contributing, please check out the [contributing guidelines](CONTRIBUTING.MD) and feel free to open an issue or submit a pull request.
