@@ -17,6 +17,7 @@ tmp/
 !.env.example
 trash/
 trash.txt
+*.db
 
 .vscode/*
 !.vscode/extensions.json
