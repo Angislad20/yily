@@ -1,6 +1,43 @@
 package main
 
-//entry point for the server application.
+import (
+	"net/http"
+	"time"
+
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+	"github.com/yannick2009/yily/internal/adapter"
+	"github.com/yannick2009/yily/internal/config"
+)
+
+// entry point for the server application.
 func main() {
-	// Initialize the server
+	// Load configuration settings
+	_ = config.NewConfig()
+
+	// Initialize the database connection
+	_ = adapter.NewDB()
+
+	// Create a new server instance
+	server := echo.New()
+
+	// Middleware configuration
+	server.Use(middleware.RequestLogger())                                         // Log incoming requests
+	server.Use(middleware.Recover())                                               // Recover from panics and return a 500 error
+	server.Use(middleware.BodyLimit(1 << 20))                                      // 1 MB
+	server.Use(middleware.ContextTimeout(30 * time.Second))                        // Set a timeout for request context
+	server.Use(middleware.CSRF())                                                  // Enable CSRF protection
+	server.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(50.0))) // Rate limiting 50 requests per second
+	server.Use(middleware.Secure())                                                // Enable security headers
+
+	// Define API routes
+	routes := server.Group("/api/v1")
+
+	routes.GET("/healthcheck", func(c *echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]string{"message": "OK!"})
+	})
+
+	if err := server.Start(":16529"); err != nil {
+		server.Logger.Error("failed to start server", "error", err)
+	}
 }
