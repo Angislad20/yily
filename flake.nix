@@ -2,8 +2,6 @@
   description = "A tiny self-hosted secret manager";
 
   inputs = {
-    # Declared explicitly so all contributors resolve the same nixpkgs source.
-    # We use nixos-unstable to get modern tool versions (Go 1.26).
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
@@ -33,8 +31,7 @@
       {
         devShells = {
           default = pkgs.mkShell {
-            # `packages` is the modern, recommended attribute for development shells.
-            packages = devPkgs;
+            buildInputs = devPkgs;
             shellHook = ''
               unset GOROOT
               (cd client && npm install --silent)
@@ -44,8 +41,10 @@
           };
         };
 
-        # Note: Packages (binary and docker) will be added when distribution
-        # packaging is ready. Empty sets break `nix flake check`.
+        packages = {
+          default = {};
+          docker = {};
+        };
       }
     );
 }
