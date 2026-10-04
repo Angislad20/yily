@@ -3,6 +3,7 @@ module github.com/yannick2009/yily
 go 1.26.8
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v5 v5.4.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
