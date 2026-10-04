@@ -4,16 +4,24 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // Environment represents an environment in the system.
 type Environment struct {
-	ID          uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid();index" json:"id"` // Unique identifier for the environment
+	ID          uuid.UUID  `gorm:"primaryKey" json:"id"`                                           // Unique identifier for the environment
 	Name        string     `gorm:"type:varchar(255);not null" json:"name"`                         // Name of the environment
 	Description string     `gorm:"type:varchar(255)" json:"description"`                           // Description of the environment
 	CreatedAt   time.Time  `gorm:"autoCreateTime" json:"created_at"`                               // Timestamp when the environment was created
 	UpdatedAt   time.Time  `gorm:"autoUpdateTime" json:"updated_at"`                               // Timestamp when the environment was last updated
-	ProjectID   uuid.UUID  `gorm:"type:uuid;not null;index" json:"project_id"`                     // Foreign key referencing the associated project
-	Project     Project    `json:"project"`                                                        // The associated project object
+	ProjectID   uuid.UUID  `gorm:"not null;index" json:"project_id"`                               // Foreign key referencing the associated project
 	Variables   []Variable `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"variables"` // List of variables associated with the environment
+}
+
+// BeforeCreate is a GORM hook that is triggered before creating a new Environment record.
+func (e *Environment) BeforeCreate(tx *gorm.DB) error {
+	if e.ID == uuid.Nil {
+		e.ID = uuid.New()
+	}
+	return nil
 }
