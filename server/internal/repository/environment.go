@@ -20,7 +20,7 @@ type EnvironmentRepository interface {
 	SetDescription(ctx context.Context, environmentID uuid.UUID, description string) error // SetDescription updates the description of an existing environment in the database.
 	Delete(ctx context.Context, environmentID uuid.UUID) error                             // Delete deletes an environment from the database by its ID.
 	GetByID(ctx context.Context, environmentID uuid.UUID) (*model.Environment, error)      // GetByID retrieves an environment from the database by its ID.
-	GetAll(ctx context.Context) ([]model.Environment, error)                               // GetAll retrieves all environments from the database.
+	GetAll(ctx context.Context, projectID uuid.UUID) ([]model.Environment, error)          // GetAll retrieves all environments from the database.
 }
 
 // environmentRepository is a struct that implements the EnvironmentRepository interface.
@@ -69,8 +69,8 @@ func (r *environmentRepository) GetByID(ctx context.Context, environmentID uuid.
 }
 
 // GetAll retrieves all environments from the database.
-func (r *environmentRepository) GetAll(ctx context.Context) ([]model.Environment, error) {
-	environments, err := gorm.G[model.Environment](r.DB).Find(ctx)
+func (r *environmentRepository) GetAll(ctx context.Context, projectID uuid.UUID) ([]model.Environment, error) {
+	environments, err := gorm.G[model.Environment](r.DB).Where("project_id = ?", projectID).Find(ctx)
 	if err != nil {
 		return nil, err
 	}
