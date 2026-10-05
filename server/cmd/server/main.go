@@ -13,6 +13,8 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/yannick2009/yily/internal/adapter"
 	"github.com/yannick2009/yily/internal/config"
+	"github.com/yannick2009/yily/internal/handler"
+	"github.com/yannick2009/yily/internal/repository"
 )
 
 // entry point for the server application.
@@ -25,7 +27,11 @@ func main() {
 	_ = cfg
 
 	// Initialize the database connection
-	_ = adapter.NewDB()
+	db := adapter.NewDB()
+
+	// Initialize the project repository and handler
+	projectRepo := repository.NewProjectRepository(db)
+	projectHandler := handler.NewProjectHandler(projectRepo)
 
 	// Create a new server instance
 	server := echo.New()
@@ -45,6 +51,13 @@ func main() {
 	routes.GET("/healthcheck", func(c *echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"message": "OK!"})
 	})
+
+	// Project routes
+	routes.POST("/projects", projectHandler.Create)
+	routes.GET("/projects", projectHandler.GetAll)
+	routes.GET("/projects/:id", projectHandler.GetByID)
+	routes.PATCH("/projects/:id", projectHandler.SetName)
+	routes.DELETE("/projects/:id", projectHandler.Delete)
 
 	// Setup graceful shutdown on SIGINT or SIGTERM
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
