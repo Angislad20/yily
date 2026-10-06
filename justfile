@@ -1,4 +1,5 @@
 alias s := start
+alias l := lint
 alias t := test
 
 default:
@@ -8,6 +9,10 @@ default:
 start:
     hivemind
 
+# format & lint the server code
+lint:
+    cd server && go fmt ./... && golangci-lint run ./... && nilaway ./...
+
 # format and check the server code
 test:
-    cd server && go fmt ./... && go test ./... && golangci-lint run ./... && nilaway ./...
+    cd server && go test ./...
