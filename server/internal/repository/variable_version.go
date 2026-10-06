@@ -18,6 +18,7 @@ type VariableVersionRepository interface {
 	GetCurrentActive(ctx context.Context, variableID uuid.UUID) (*model.VariableVersion, error) // GetCurrentActive retrieves the current active variable version for a given variable ID.
 	Create(ctx context.Context, variableVersion *model.VariableVersion) error                   // Create creates a new variable version in the database.
 	SetActive(ctx context.Context, variableVersionID uuid.UUID, active bool) error              // Update updates an existing variable version in the database.
+	DeactivateAll(ctx context.Context, variableID uuid.UUID) error                              // DeactivateAll deactivates all active versions of a variable.
 	GetAll(ctx context.Context, variableID uuid.UUID) ([]model.VariableVersion, error)          // GetAll retrieves all variable versions from the database.
 }
 
@@ -47,6 +48,12 @@ func (r *variableVersionRepository) Create(ctx context.Context, variableVersion 
 // SetActive updates the active status of a variable version in the database.
 func (r *variableVersionRepository) SetActive(ctx context.Context, variableVersionID uuid.UUID, active bool) error {
 	_, err := gorm.G[model.VariableVersion](r.DB).Where("id = ?", variableVersionID).Update(ctx, "active", active)
+	return err
+}
+
+// DeactivateAll deactivates all active versions of a variable.
+func (r *variableVersionRepository) DeactivateAll(ctx context.Context, variableID uuid.UUID) error {
+	_, err := gorm.G[model.VariableVersion](r.DB).Where("variable_id = ? AND active = ?", variableID, true).Update(ctx, "active", false)
 	return err
 }
 
