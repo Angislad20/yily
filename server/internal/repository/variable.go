@@ -21,6 +21,7 @@ type VariableRepository interface {
 	GetByID(ctx context.Context, variableID uuid.UUID) (*model.Variable, error)                           // GetByID retrieves a variable from the database by its ID.
 	GetAll(ctx context.Context, environmentID uuid.UUID) ([]model.Variable, error)                        // GetAll retrieves all variables from the database.
 	GetByTags(ctx context.Context, environmentID uuid.UUID, tagIDs []uuid.UUID) ([]model.Variable, error) // GetByTags retrieves all variables that have at least one of the given tags.
+	SetTags(ctx context.Context, variableID uuid.UUID, tagIDs []uuid.UUID) error                          // SetTags replaces the set of tags associated with a variable.
 }
 
 // variableRepository is a struct that implements the VariableRepository interface.
@@ -87,4 +88,31 @@ func (r *variableRepository) GetByTags(ctx context.Context, environmentID uuid.U
 	}
 
 	return variables, nil
+}
+
+// SetTags replaces the set of tags associated with a variable.
+func (r *variableRepository) SetTags(ctx context.Context, variableID uuid.UUID, tagIDs []uuid.UUID) error {
+	// No tags means "remove them all".
+	if len(tagIDs) == 0 {
+		return r.DB.
+			Where("id = ?", variableID).
+			Model(&model.Variable{}).
+			Association("Tags").
+			Clear()
+	}
+
+	// Fetch tags using Generics API (type-safe)
+	tags, err := gorm.G[model.Tag](r.DB).
+		Where("id IN ?", tagIDs).
+		Find(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Replace association (ancienne API requise)
+	return r.DB.
+		Where("id = ?", variableID).
+		Model(&model.Variable{}).
+		Association("Tags").
+		Replace(tags)
 }
