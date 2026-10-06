@@ -92,27 +92,18 @@ func (r *variableRepository) GetByTags(ctx context.Context, environmentID uuid.U
 
 // SetTags replaces the set of tags associated with a variable.
 func (r *variableRepository) SetTags(ctx context.Context, variableID uuid.UUID, tagIDs []uuid.UUID) error {
+	variable := model.Variable{ID: variableID}
+
 	// No tags means "remove them all".
 	if len(tagIDs) == 0 {
-		return r.DB.
-			Where("id = ?", variableID).
-			Model(&model.Variable{}).
-			Association("Tags").
-			Clear()
+		return r.DB.Model(&variable).Association("Tags").Clear()
 	}
 
-	// Fetch tags using Generics API (type-safe)
-	tags, err := gorm.G[model.Tag](r.DB).
-		Where("id IN ?", tagIDs).
-		Find(ctx)
+	// Fetch the tag models (the generic API does not expose Association, hence plain r.DB below).
+	tags, err := gorm.G[model.Tag](r.DB).Where("id IN ?", tagIDs).Find(ctx)
 	if err != nil {
 		return err
 	}
 
-	// Replace association (ancienne API requise)
-	return r.DB.
-		Where("id = ?", variableID).
-		Model(&model.Variable{}).
-		Association("Tags").
-		Replace(tags)
+	return r.DB.Model(&variable).Association("Tags").Replace(tags)
 }
