@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/yannick2009/yily/internal/crypto"
 	"github.com/yannick2009/yily/internal/domain/model"
 	"github.com/yannick2009/yily/internal/repository"
-	"github.com/yannick2009/yily/pkg/crypto"
 )
 
 var (
