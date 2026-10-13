@@ -21,6 +21,7 @@ type ProjectRepository interface {
 	Delete(ctx context.Context, projectID uuid.UUID) error                    // Delete deletes a project from the database by its ID.
 	GetByID(ctx context.Context, projectID uuid.UUID) (*model.Project, error) // GetByID retrieves a project from the database by its ID.
 	GetAll(ctx context.Context) ([]model.Project, error)                      // GetAll retrieves all projects from the database.
+	DeleteAll(ctx context.Context) error                                      // DeleteAll deletes all projects from the database.
 }
 
 // projectRepository is a struct that implements the ProjectRepository interface.
@@ -72,4 +73,10 @@ func (r *projectRepository) GetAll(ctx context.Context) ([]model.Project, error)
 	}
 
 	return projects, nil
+}
+
+// DeleteAll deletes all projects from the database.
+func (r *projectRepository) DeleteAll(ctx context.Context) error {
+	_, err := gorm.G[model.Project](r.DB).Delete(ctx)
+	return err
 }
