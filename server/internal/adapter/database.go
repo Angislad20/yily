@@ -26,7 +26,7 @@ func NewDB() *gorm.DB {
 		panic("failed to create database file")
 	}
 
-	db, err := gorm.Open(sqlite.Open(DatabaseFile+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(DatabaseFile+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL&_txlock=immediate"), &gorm.Config{
 		TranslateError: true,
 	})
 	if err != nil {
