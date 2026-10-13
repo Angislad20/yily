@@ -1,7 +1,9 @@
 package services
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -9,6 +11,11 @@ import (
 	"github.com/yannick2009/yily/internal/domain/types"
 	"github.com/yannick2009/yily/internal/env"
 	"github.com/yannick2009/yily/internal/repository"
+	"github.com/yannick2009/yily/pkg/crypto"
+)
+
+var (
+	ErrDecryptionFailed = errors.New("failed to decrypt secret value")
 )
 
 // VariableService defines the interface for variable business logic, including its versions.
@@ -35,11 +42,16 @@ type VariableService interface {
 type variableService struct {
 	variableRepository repository.VariableRepository
 	versionRepository  repository.VariableVersionRepository
+	masterKey          []byte
 }
 
-// NewVariableService creates a new variableService with the provided repositories.
-func NewVariableService(variableRepository repository.VariableRepository, versionRepository repository.VariableVersionRepository) VariableService {
-	return &variableService{variableRepository, versionRepository}
+// NewVariableService creates a new variableService with the provided repositories and master key.
+func NewVariableService(variableRepository repository.VariableRepository, versionRepository repository.VariableVersionRepository, masterKey []byte) VariableService {
+	return &variableService{
+		variableRepository: variableRepository,
+		versionRepository:  versionRepository,
+		masterKey:          bytes.Clone(masterKey),
+	}
 }
 
 // Create creates a new variable with its first version.
@@ -100,14 +112,38 @@ func (s *variableService) SetVersionActive(ctx context.Context, variableVersionI
 	return s.versionRepository.SetActive(ctx, variableVersionID, active)
 }
 
-// GetCurrentVersion returns the current active version of a variable.
+// GetCurrentVersion returns the current active version of a variable with its decrypted value.
 func (s *variableService) GetCurrentVersion(ctx context.Context, variableID uuid.UUID) (*model.VariableVersion, error) {
-	return s.versionRepository.GetCurrentActive(ctx, variableID)
+	version, err := s.versionRepository.GetCurrentActive(ctx, variableID)
+	if err != nil {
+		return nil, err
+	}
+
+	decrypted, err := crypto.Decrypt(version.Value, s.masterKey, version.VariableID, version.Version)
+	if err != nil {
+		return nil, ErrDecryptionFailed
+	}
+	version.Value = decrypted
+
+	return version, nil
 }
 
-// GetAllVersions returns all versions of a variable, newest first.
+// GetAllVersions returns all versions of a variable with their decrypted values, newest first.
 func (s *variableService) GetAllVersions(ctx context.Context, variableID uuid.UUID) ([]model.VariableVersion, error) {
-	return s.versionRepository.GetAll(ctx, variableID)
+	versions, err := s.versionRepository.GetAll(ctx, variableID)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range versions {
+		decrypted, err := crypto.Decrypt(versions[i].Value, s.masterKey, versions[i].VariableID, versions[i].Version)
+		if err != nil {
+			return nil, ErrDecryptionFailed
+		}
+		versions[i].Value = decrypted
+	}
+
+	return versions, nil
 }
 
 // AddVersion adds a new active version to a variable and returns it.
@@ -120,18 +156,17 @@ func (s *variableService) ClearValue(ctx context.Context, variableID uuid.UUID) 
 	return s.versionRepository.DeactivateAll(ctx, variableID)
 }
 
-// addVersion creates a new active version for the given variable.
+// addVersion creates a new active encrypted version for the given variable.
 func (s *variableService) addVersion(ctx context.Context, variableID uuid.UUID, value string) (*model.VariableVersion, error) {
-	version := &model.VariableVersion{
-		Value:      value,
-		Active:     true,
-		VariableID: variableID,
-	}
-
-	if err := s.versionRepository.Create(ctx, version); err != nil {
+	version, err := s.versionRepository.CreateWithEncryption(ctx, variableID, func(v int) (string, error) {
+		return crypto.Encrypt(value, s.masterKey, variableID, v)
+	})
+	if err != nil {
 		return nil, err
 	}
 
+	// Keep plaintext value in memory to avoid leaking ciphertext in API responses.
+	version.Value = value
 	return version, nil
 }
 
