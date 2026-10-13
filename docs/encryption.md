@@ -63,23 +63,7 @@ To construct the deterministic AAD, `variable_id` and `version` must be determin
 
 ---
 
-## 6. Database Schema Adjustment
-
-In `server/internal/domain/model/variable_version.go`:
-
-```go
-// Current:
-Value string `gorm:"type:varchar(255)" json:"value"`
-
-// Proposed:
-Value string `gorm:"type:text;not null" json:"value"`
-```
-
-**Reason:** Long secrets (private keys, TLS certificates, long tokens) combined with encryption overhead (nonce, tag, Base64 encoding) easily exceed 255 characters. Changing to `type:text` avoids imposing an application-level 255-character storage limit.
-
----
-
-## 7. Proposed Go Package API
+## 6. Proposed Go Package API
 
 A dedicated package `server/internal/crypto` using standard library primitives (`crypto/aes`, `crypto/cipher`, `crypto/rand`):
 
@@ -99,14 +83,13 @@ func Decrypt(payload string, masterKey []byte, variableID uuid.UUID, version int
 
 ---
 
-## 8. Next Steps
+## 7. Next Steps
 
-1. Update `VariableVersion.Value` GORM tag to `type:text;not null`.
-2. Implement `server/internal/crypto` with unit tests covering:
+1. Implement `server/internal/crypto` with unit tests covering:
    - Successful encryption and decryption round-trip.
    - Key length validation (must be exactly 32 bytes).
    - Corrupted ciphertext or modified nonce detection.
    - AAD mismatch detection (wrong variable ID or wrong version).
    - Malformed envelope handling.
-3. Integrate encryption and decryption into `VariableService`.
-4. Ensure plaintext secrets are never persisted, cached, or logged.
+2. Integrate encryption and decryption into `VariableService`.
+3. Ensure plaintext secrets are never persisted, cached, or logged.
