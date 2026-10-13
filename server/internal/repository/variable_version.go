@@ -10,16 +10,20 @@ import (
 )
 
 var (
-	ErrVariableVersionNotFound = errors.New("variable latest version not found") // ErrNotFound is returned when a record is not found in the database.
+	ErrVariableVersionNotFound = errors.New("variable latest version not found")
+	ErrDuplicateVersion        = errors.New("duplicate variable version")
 )
 
-// VariableVersionRepository defines the interface for interacting with variable version data in the database.
+// EncryptFn encrypts a value using the assigned version number.
+type EncryptFn func(version int) (encryptedValue string, err error)
+
+// VariableVersionRepository defines the interface for interacting with variable version data.
 type VariableVersionRepository interface {
-	GetCurrentActive(ctx context.Context, variableID uuid.UUID) (*model.VariableVersion, error) // GetCurrentActive retrieves the current active variable version for a given variable ID.
-	Create(ctx context.Context, variableVersion *model.VariableVersion) error                   // Create creates a new variable version in the database.
-	SetActive(ctx context.Context, variableVersionID uuid.UUID, active bool) error              // Update updates an existing variable version in the database.
-	DeactivateAll(ctx context.Context, variableID uuid.UUID) error                              // DeactivateAll deactivates all active versions of a variable.
-	GetAll(ctx context.Context, variableID uuid.UUID) ([]model.VariableVersion, error)          // GetAll retrieves all variable versions from the database.
+	GetCurrentActive(ctx context.Context, variableID uuid.UUID) (*model.VariableVersion, error)                          // GetCurrentActive retrieves the current active version.
+	CreateWithEncryption(ctx context.Context, variableID uuid.UUID, encryptFn EncryptFn) (*model.VariableVersion, error) // CreateWithEncryption creates and encrypts a version.
+	SetActive(ctx context.Context, variableVersionID uuid.UUID, active bool) error                                       // SetActive updates the active status.
+	DeactivateAll(ctx context.Context, variableID uuid.UUID) error                                                       // DeactivateAll deactivates all versions.
+	GetAll(ctx context.Context, variableID uuid.UUID) ([]model.VariableVersion, error)                                   // GetAll retrieves all versions.
 }
 
 // variableVersionRepository is a struct that implements the VariableVersionRepository interface.
@@ -27,22 +31,49 @@ type variableVersionRepository struct {
 	DB *gorm.DB
 }
 
-// NewVariableVersionRepository creates a new instance of variableVersionRepository with the provided GORM database connection.
+// NewVariableVersionRepository creates a new instance of variableVersionRepository.
 func NewVariableVersionRepository(db *gorm.DB) VariableVersionRepository {
 	return &variableVersionRepository{DB: db}
 }
 
-func (r *variableVersionRepository) Create(ctx context.Context, variableVersion *model.VariableVersion) error {
-	var maxVersion int
-	err := r.DB.Model(&model.VariableVersion{}).
-		Where("variable_id = ?", variableVersion.VariableID).
-		Select("COALESCE(MAX(version), 0)").
-		Scan(&maxVersion).Error
+// CreateWithEncryption computes the next version, encrypts via callback, and persists the version atomically.
+func (r *variableVersionRepository) CreateWithEncryption(ctx context.Context, variableID uuid.UUID, encryptFn EncryptFn) (*model.VariableVersion, error) {
+	var createdVersion model.VariableVersion
+	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var maxVersion int
+		err := tx.Model(&model.VariableVersion{}).
+			Where("variable_id = ?", variableID).
+			Select("COALESCE(MAX(version), 0)").
+			Scan(&maxVersion).Error
+		if err != nil {
+			return err
+		}
+
+		nextVersion := maxVersion + 1
+		encryptedValue, err := encryptFn(nextVersion)
+		if err != nil {
+			return err
+		}
+
+		createdVersion = model.VariableVersion{
+			VariableID: variableID,
+			Version:    nextVersion,
+			Value:      encryptedValue,
+			Active:     true,
+		}
+
+		if err := gorm.G[model.VariableVersion](tx).Create(ctx, &createdVersion); err != nil {
+			if errors.Is(err, gorm.ErrDuplicatedKey) {
+				return ErrDuplicateVersion
+			}
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	variableVersion.Version = maxVersion + 1
-	return gorm.G[model.VariableVersion](r.DB).Create(ctx, variableVersion)
+	return &createdVersion, nil
 }
 
 // SetActive updates the active status of a variable version in the database.
