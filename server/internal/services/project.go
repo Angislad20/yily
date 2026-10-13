@@ -18,6 +18,7 @@ type ProjectService interface {
 	GetAll(ctx context.Context) ([]model.Project, error)                      // GetAll retrieves all projects.
 	SetName(ctx context.Context, projectID uuid.UUID, name string) error      // SetName updates the name of a project.
 	Delete(ctx context.Context, projectID uuid.UUID) error                    // Delete deletes a project.
+	Clear(ctx context.Context) error                                          // Clear deletes all projects.
 }
 
 // projectService implements ProjectService.
@@ -68,4 +69,9 @@ func (s *projectService) SetName(ctx context.Context, projectID uuid.UUID, name 
 // Delete deletes a project.
 func (s *projectService) Delete(ctx context.Context, projectID uuid.UUID) error {
 	return s.projectRepository.Delete(ctx, projectID)
+}
+
+// Clear deletes all projects.
+func (s *projectService) Clear(ctx context.Context) error {
+	return s.projectRepository.DeleteAll(ctx)
 }

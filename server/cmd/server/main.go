@@ -70,6 +70,7 @@ func main() {
 	// Projects
 	routes.POST("/projects", projectHandler.Create)
 	routes.GET("/projects", projectHandler.GetAll)
+	routes.DELETE("/projects", projectHandler.Clear)
 	routes.GET("/projects/:id", projectHandler.GetByID)
 	routes.PATCH("/projects/:id", projectHandler.SetName)
 	routes.DELETE("/projects/:id", projectHandler.Delete)

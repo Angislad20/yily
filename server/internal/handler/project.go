@@ -14,6 +14,7 @@ type ProjectHandler interface {
 	GetByID(c *echo.Context) error
 	SetName(c *echo.Context) error
 	Delete(c *echo.Context) error
+	Clear(c *echo.Context) error
 }
 
 // projectHandler handles HTTP requests for projects.
@@ -102,4 +103,13 @@ func (h *projectHandler) Delete(c *echo.Context) error {
 	}
 
 	return NewHTTPResponse[any](c, http.StatusOK, "Project deleted successfully", nil)
+}
+
+// Clear handles DELETE /projects.
+func (h *projectHandler) Clear(c *echo.Context) error {
+	if err := h.projectService.Clear(c.Request().Context()); err != nil {
+		return NewHTTPResponse[any](c, httpStatus(err), err.Error(), nil)
+	}
+
+	return NewHTTPResponse[any](c, http.StatusOK, "All projects deleted successfully", nil)
 }
