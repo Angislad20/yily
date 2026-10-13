@@ -37,6 +37,31 @@ For this project, we have a monorepo structure that contains both the server and
 
 The `client` contains the web interface, while the `server` contains the API, the command-line interface, and the application's internal packages.
 
+## Configuration
+
+### Master Key (`YILY_MASTER_KEY`)
+
+Yily encrypts secret values at rest using AES-256-GCM. The server requires a 32-byte Base64-encoded master key provided through the `YILY_MASTER_KEY` environment variable.
+
+1. **Generate a key:**
+   ```bash
+   openssl rand -base64 32
+   ```
+
+2. **Configure the key:**
+   - **Environment variable:** set it in your environment or process manager:
+     ```bash
+     export YILY_MASTER_KEY="<your-generated-base64-key>"
+     ```
+   **Local development with Air:** from the `server` directory, copy `.env.example` to `.env` and set `YILY_MASTER_KEY`. Air loads `.env` into the process environment when running `air`.
+   > **Note:** The Go binary reads `YILY_MASTER_KEY` directly from process environment variables via `os.LookupEnv`. If running without Air (e.g. `go run ./cmd/server` or `./tmp/server`), export the variable in your shell.
+
+3. **Important precautions:**
+   - **Keep it secret:** Never commit the master key or a populated `.env` file to version control.
+   - **Backup securely:** Store `YILY_MASTER_KEY` in a secure location separate from the SQLite database.
+   - **Unrecoverable on loss:** If the master key is lost, all encrypted secrets become permanently unrecoverable.
+   - **Persistence:** Do not generate a new key on every restart; reuse the same key to retain access to existing data.
+
 ## License
 
 Yily is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
