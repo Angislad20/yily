@@ -62,7 +62,7 @@ func Decrypt(payload string, masterKey []byte, variableID uuid.UUID, version int
 	}
 
 	parts := strings.Split(payload, ":")
-	if len(parts) != 3 || parts[0] != versionPrefix {
+	if len(parts) != 3 {
 		return "", ErrMalformedPayload
 	}
 

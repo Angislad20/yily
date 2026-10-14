@@ -158,10 +158,24 @@ func (s *variableService) ClearValue(ctx context.Context, variableID uuid.UUID) 
 
 // addVersion creates a new active encrypted version for the given variable.
 func (s *variableService) addVersion(ctx context.Context, variableID uuid.UUID, value string) (*model.VariableVersion, error) {
-	version, err := s.versionRepository.CreateWithEncryption(ctx, variableID, func(v int) (string, error) {
-		return crypto.Encrypt(value, s.masterKey, variableID, v)
-	})
+	nextVersion, err := s.versionRepository.GetNextVersion(ctx, variableID)
 	if err != nil {
+		return nil, err
+	}
+
+	encryptedValue, err := crypto.Encrypt(value, s.masterKey, variableID, nextVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	version := &model.VariableVersion{
+		VariableID: variableID,
+		Version:    nextVersion,
+		Value:      encryptedValue,
+		Active:     true,
+	}
+
+	if err := s.versionRepository.Create(ctx, version); err != nil {
 		return nil, err
 	}
 
