@@ -1,30 +1,51 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"os"
 	"strings"
 )
 
+const (
+	// MasterKeySize is the required length in bytes for the AES-256 master key.
+	MasterKeySize = 32
+)
+
 var (
 	// ErrMissingMasterKey is returned when the YILY_MASTER_KEY environment variable is empty.
 	ErrMissingMasterKey = errors.New("YILY_MASTER_KEY is required (generate one with `openssl rand -base64 32`)")
+
+	// ErrInvalidMasterKeyBase64 is returned when YILY_MASTER_KEY is not valid standard Base64.
+	ErrInvalidMasterKeyBase64 = errors.New("YILY_MASTER_KEY must be a valid base64-encoded string")
+
+	// ErrInvalidMasterKeyLength is returned when the decoded key length is not exactly 32 bytes.
+	ErrInvalidMasterKeyLength = errors.New("YILY_MASTER_KEY decoded length must be exactly 32 bytes")
 )
 
-// Config represents the configuration for the application.
+// config represents the application configuration.
 type config struct {
-	MasterKey string
+	MasterKey []byte
 }
 
 // Load reads and validates the configuration from environment variables.
 func Load() (*config, error) {
-	masterKey := getEnv("YILY_MASTER_KEY", "")
-	if masterKey == "" {
+	rawKey := getEnv("YILY_MASTER_KEY", "")
+	if rawKey == "" {
 		return nil, ErrMissingMasterKey
 	}
 
+	decodedKey, err := base64.StdEncoding.DecodeString(rawKey)
+	if err != nil {
+		return nil, ErrInvalidMasterKeyBase64
+	}
+
+	if len(decodedKey) != MasterKeySize {
+		return nil, ErrInvalidMasterKeyLength
+	}
+
 	return &config{
-		MasterKey: masterKey,
+		MasterKey: decodedKey,
 	}, nil
 }
 

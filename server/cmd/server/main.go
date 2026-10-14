@@ -26,7 +26,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	_ = cfg // reserved for future auth via cfg.MasterKey
 
 	// Initialize the database connection
 	db := adapter.NewDB()
@@ -41,7 +40,7 @@ func main() {
 	// Services
 	projectService := services.NewProjectService(projectRepository, environmentRepository)
 	environmentService := services.NewEnvironmentService(environmentRepository)
-	variableService := services.NewVariableService(variableRepository, versionRepository)
+	variableService := services.NewVariableService(variableRepository, versionRepository, cfg.MasterKey)
 	tagService := services.NewTagService(tagRepository)
 
 	// Handlers
