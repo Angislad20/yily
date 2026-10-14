@@ -36,13 +36,13 @@ func NewVariableHandler(variableService services.VariableService) VariableHandle
 
 // createVariableRequest represents the expected JSON body for creating a variable.
 type createVariableRequest struct {
-	Name  string `json:"name" validate:"required,uppercase"`
+	Name  string `json:"name" validate:"required"`
 	Value string `json:"value"`
 }
 
 // updateVariableRequest represents the expected JSON body for updating a variable's name.
 type updateVariableRequest struct {
-	Name string `json:"name" validate:"required,uppercase"`
+	Name string `json:"name" validate:"required"`
 }
 
 // addVersionRequest represents the expected JSON body for adding a new version to a variable.

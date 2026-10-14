@@ -46,7 +46,7 @@ func main() {
 
 	// Handlers
 	projectHandler := handler.NewProjectHandler(projectService)
-	environmentHandler := handler.NewEnvironmentHandler(environmentService)
+	environmentHandler := handler.NewEnvironmentHandler(environmentService, variableService)
 	variableHandler := handler.NewVariableHandler(variableService)
 	tagHandler := handler.NewTagHandler(tagService)
 
@@ -82,6 +82,7 @@ func main() {
 	routes.PATCH("/environments/:id/name", environmentHandler.SetName)
 	routes.PATCH("/environments/:id/description", environmentHandler.SetDescription)
 	routes.DELETE("/environments/:id", environmentHandler.Delete)
+	routes.POST("/environments/:id/imports", environmentHandler.Import)
 
 	// Variables
 	routes.POST("/environments/:environmentID/variables", variableHandler.Create)

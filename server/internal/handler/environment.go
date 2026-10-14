@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+	"github.com/yannick2009/yily/internal/domain/types"
 	"github.com/yannick2009/yily/internal/services"
 )
 
@@ -15,16 +17,18 @@ type EnvironmentHandler interface {
 	SetName(c *echo.Context) error
 	SetDescription(c *echo.Context) error
 	Delete(c *echo.Context) error
+	Import(c *echo.Context) error
 }
 
 // environmentHandler handles HTTP requests for environments.
 type environmentHandler struct {
 	environmentService services.EnvironmentService
+	variableService    services.VariableService
 }
 
 // NewEnvironmentHandler creates a new EnvironmentHandler.
-func NewEnvironmentHandler(environmentService services.EnvironmentService) EnvironmentHandler {
-	return &environmentHandler{environmentService}
+func NewEnvironmentHandler(environmentService services.EnvironmentService, variableService services.VariableService) EnvironmentHandler {
+	return &environmentHandler{environmentService, variableService}
 }
 
 // createEnvironmentRequest represents the expected JSON body for creating an environment.
@@ -144,4 +148,43 @@ func (h *environmentHandler) Delete(c *echo.Context) error {
 	}
 
 	return NewHTTPResponse[any](c, http.StatusOK, "Environment deleted successfully", nil)
+}
+
+// Import handles POST /environments/:id/import.
+func (h *environmentHandler) Import(c *echo.Context) error {
+	id, ok := uuidParam(c, "id")
+	if !ok {
+		return nil
+	}
+
+	// Parse the multipart form data
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		return NewHTTPResponse[any](c, http.StatusBadRequest, "Failed to parse multipart form data", nil)
+	}
+
+	// Check the file extension
+	fileType, err := types.FromFilename(fileHeader.Filename)
+	if err != nil {
+		return NewHTTPResponse[any](c, http.StatusBadRequest, err.Error(), nil)
+	}
+
+	// Get the file from the form data
+	file, err := fileHeader.Open()
+	if err != nil {
+		return NewHTTPResponse[any](c, http.StatusInternalServerError, "Failed to open uploaded file", nil)
+	}
+	defer func() { _ = file.Close() }()
+
+	contentByte, err := io.ReadAll(file)
+	if err != nil {
+		return NewHTTPResponse[any](c, http.StatusInternalServerError, "Failed to read uploaded file", nil)
+	}
+
+	// Call the variableService to import variables from the uploaded file
+	if err := h.variableService.Import(c.Request().Context(), id, contentByte, fileType); err != nil {
+		return NewHTTPResponse[any](c, httpStatus(err), err.Error(), nil)
+	}
+
+	return NewHTTPResponse[any](c, http.StatusOK, "Variables imported successfully", nil)
 }

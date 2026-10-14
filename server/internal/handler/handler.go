@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+	"github.com/yannick2009/yily/internal/domain/types"
+	"github.com/yannick2009/yily/internal/env"
 	"github.com/yannick2009/yily/internal/repository"
 )
 
@@ -43,7 +45,12 @@ func httpStatus(err error) int {
 	case errors.Is(err, repository.ErrVariableNameAlreadyExists),
 		errors.Is(err, repository.ErrTagNameAlreadyExists):
 		return http.StatusConflict
-	case errors.Is(err, repository.ErrTagNotInProject):
+	case errors.Is(err, repository.ErrTagNotInProject),
+		errors.Is(err, env.ErrInvalidJSONFormat),
+		errors.Is(err, env.ErrInvalidYAMLFormat),
+		errors.Is(err, env.ErrInvalidEnvFileFormat),
+		errors.Is(err, types.ErrUnsupportedFileType),
+		errors.Is(err, env.ErrDuplicateVariableName):
 		return http.StatusBadRequest
 	case errors.Is(err, repository.ErrProjectNotFound),
 		errors.Is(err, repository.ErrEnvironmentNotFound),
