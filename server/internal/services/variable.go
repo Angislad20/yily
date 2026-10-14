@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/yannick2009/yily/internal/crypto"
 	"github.com/yannick2009/yily/internal/domain/model"
+	"github.com/yannick2009/yily/internal/domain/types"
+	"github.com/yannick2009/yily/internal/env"
 	"github.com/yannick2009/yily/internal/repository"
 )
 
@@ -26,6 +28,7 @@ type VariableService interface {
 	SetName(ctx context.Context, variableID uuid.UUID, name string) error                                 // SetName updates the name of a variable.
 	Delete(ctx context.Context, variableID uuid.UUID) error                                               // Delete deletes a variable (and its versions via cascade).
 	SetTags(ctx context.Context, variableID uuid.UUID, tagIDs []uuid.UUID) error                          // SetTags replaces the set of tags associated with a variable.
+	Import(ctx context.Context, environmentID uuid.UUID, data []byte, fileType types.FileType) error      // Import imports variables from a file (JSON, YAML or .env), creating new ones and updating existing ones whose value changed.
 
 	// versions
 	AddVersion(ctx context.Context, variableID uuid.UUID, value string) (*model.VariableVersion, error) // AddVersion adds a new active version to a variable.
@@ -55,7 +58,7 @@ func NewVariableService(variableRepository repository.VariableRepository, versio
 // If the version creation fails, the variable is removed again to keep the data consistent.
 func (s *variableService) Create(ctx context.Context, environmentID uuid.UUID, name, value string) (*model.Variable, error) {
 	variable := &model.Variable{
-		Name:          name,
+		Name:          normalizeVariableName(name),
 		EnvironmentID: environmentID,
 	}
 	if err := s.variableRepository.Create(ctx, variable); err != nil {
@@ -91,7 +94,7 @@ func (s *variableService) GetByTags(ctx context.Context, environmentID uuid.UUID
 
 // SetName updates the name of a variable.
 func (s *variableService) SetName(ctx context.Context, variableID uuid.UUID, name string) error {
-	return s.variableRepository.SetName(ctx, variableID, name)
+	return s.variableRepository.SetName(ctx, variableID, normalizeVariableName(name))
 }
 
 // Delete deletes a variable (and its versions via cascade).
@@ -179,4 +182,42 @@ func (s *variableService) addVersion(ctx context.Context, variableID uuid.UUID, 
 	// Keep plaintext value in memory to avoid leaking ciphertext in API responses.
 	version.Value = value
 	return version, nil
+}
+
+// Import imports variables from a file (JSON, YAML or .env) into the given environment.
+// New variables are created; existing ones get a new version only if their value changed.
+func (s *variableService) Import(ctx context.Context, environmentID uuid.UUID, data []byte, fileType types.FileType) error {
+	var raw map[string]string
+	var err error
+
+	switch fileType {
+	case types.FileTypeJSON:
+		raw, err = env.ParseJSONVariables(data)
+	case types.FileTypeYAML:
+		raw, err = env.ParseYAMLVariables(data)
+	case types.FileTypeEnv:
+		raw, err = env.ParseEnvFileVariables(data)
+	default:
+		return types.ErrUnsupportedFileType
+	}
+	if err != nil {
+		return err
+	}
+
+	// Normalize names (trim + uppercase) and detect name collisions within the file.
+	variables := make(map[string]string, len(raw))
+	for name, value := range raw {
+		normalized := normalizeVariableName(name)
+		if _, exists := variables[normalized]; exists {
+			return env.ErrDuplicateVariableName
+		}
+		variables[normalized] = strings.TrimSpace(value)
+	}
+
+	return s.variableRepository.Import(ctx, environmentID, variables)
+}
+
+// normalizeVariableName returns a variable name trimmed and uppercased.
+func normalizeVariableName(name string) string {
+	return strings.ToUpper(strings.TrimSpace(name))
 }
