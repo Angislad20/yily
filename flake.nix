@@ -7,7 +7,11 @@
   };
 
   outputs =
-    { self, nixpkgs, flake-utils }:
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
@@ -26,12 +30,15 @@
           nilaway
           just
           nodejs
+          nixfmt
         ];
+
+        vite-plus = import ./nix/vite-plus.nix { inherit pkgs system; };
       in
       {
         devShells = {
           default = pkgs.mkShell {
-            buildInputs = devPkgs;
+            buildInputs = devPkgs ++ [ vite-plus ];
             shellHook = ''
               unset GOROOT
               (cd client && npm install --silent)
@@ -42,8 +49,8 @@
         };
 
         packages = {
-          default = {};
-          docker = {};
+          default = { };
+          docker = { };
         };
       }
     );
