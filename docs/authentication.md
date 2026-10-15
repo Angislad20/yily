@@ -1,16 +1,19 @@
-# Proposal: Authentication and Security Architecture for YILY
+Oui. Vu la nouvelle décision de Yannick, il faut aussi nettoyer le document : **pas de rôles, pas de multi-utilisateur, pas de permissions complexes**. On garde l’authentification et une autorisation minimale cohérente avec une instance YILY mono-utilisateur.
+
+```md
+# Authentication and Security Architecture for YILY
 
 ## 1. Objective
 
-YILY must provide authentication fully managed by the application, without relying on an external identity provider, SMTP, or any other third-party service.
+YILY should provide a fully internal authentication mechanism without relying on an external identity provider, SMTP, or any other external service.
 
-The solution must cover YILY's three primary usage modes:
+The solution should support the main YILY usage modes:
 
-- Web Interface
+- Web interface
 - HTTP API
 - CLI
 
-The objective is to maintain a lightweight architecture while clearly separating authentication, authorization, business logic, persistence, and cryptography.
+The objective is to keep the authentication system lightweight while maintaining a clear separation between authentication, authorization, business logic, persistence, and cryptography.
 
 ## 2. Proposed Architecture
 
@@ -18,230 +21,197 @@ The objective is to maintain a lightweight architecture while clearly separating
                  Web / API / CLI
                        |
                        v
-               Authentication
+                Authentication
                        |
                        v
-                 Middleware
+                  Middleware
                        |
                        v
-                Authorization
+                 Authorization
                        |
                        v
                     Service
                   /         \
                  v           v
-           Repository      Crypto
+            Repository     Crypto
                               |
                               v
                          Master Key
 ```
 
-Each layer has a specific responsibility and must not take on the responsibilities of another layer.
+Each component has a specific responsibility.
 
 ## 3. Authentication
 
-YILY manages user accounts directly.
+YILY manages authentication internally.
 
-Passwords are protected with **Argon2id**, paired with a cryptographically random salt. They are never stored in plaintext and are not encrypted as ordinary application data.
+A single user is supported at this stage: the default Super Admin created during the initial setup.
 
-Authentication remains independent of the Master Key used to protect stored secrets.
+The user's password is protected using Argon2id with a randomly generated salt.
 
-### Why this choice?
+The password is never stored in plaintext and is not encrypted as application data.
 
-Argon2id is designed for password hashing and significantly increases the cost of brute-force and dictionary attacks.
-
-It also maintains a clear separation between:
-
-- credentials used to access YILY;
-- the key used to decrypt secrets stored by YILY.
+Authentication remains independent from the Master Key used to encrypt stored secrets.
 
 ## 4. Session Management
 
-The Web interface uses **server-side sessions**.
+The Web interface uses server-side sessions.
 
-After successful authentication, the server generates a random session identifier and sends it to the browser via a secure cookie.
+After successful authentication, YILY generates a cryptographically secure session identifier and sends it to the browser through a secure cookie.
 
-The cookie must use:
+The cookie should use:
 
 - `HttpOnly`
-- `Secure` when HTTPS is used
+- `Secure` when HTTPS is enabled
 - `SameSite`
 
-Sessions must be expirable and revocable.
+Sessions should have an expiration mechanism and support revocation.
 
-A new session is generated after authentication to mitigate session fixation attacks.
-
-### Why this choice?
-
-Server-side sessions are straightforward to control and allow immediate revocation of compromised sessions.
-
-They also prevent placing sensitive information or authorization claims directly in the browser.
+A new session should be created after authentication to prevent session fixation.
 
 ## 5. Authorization
 
-Authorization is decoupled from authentication.
+Since YILY currently supports only one user, no role or permission management is required at this stage.
 
-YILY initially uses a simple role-based model:
+The authenticated user is the Super Admin of the local instance and has access to the resources of that instance.
 
-- `User`
-- `Admin`
-- `Super Admin`
+Authorization therefore remains lightweight and focuses on verifying that:
 
-Permissions are verified before sensitive operations, in particular:
+- the request is authenticated;
+- the requested resource belongs to the current YILY instance;
+- sensitive operations are explicitly allowed in the current authentication context.
 
-- reading a variable;
-- creating or modifying a variable;
-- deleting a variable;
-- creating versions;
-- retrieving a plaintext value;
-- user management;
-- modifying security settings.
+In particular, authentication must be validated before accessing or decrypting sensitive values.
 
-The identity used for these checks must come exclusively from a validated authentication context.
-
-### Why this choice?
-
-This model remains sufficiently lightweight for YILY while supporting multiple users on a single instance.
-
-It also avoids introducing an overly complex permission system prematurely when current requirements remain modest.
+A more advanced authorization model can be introduced later if YILY becomes multi-user.
 
 ## 6. Middleware
 
-The middleware is responsible for validating authentication on protected HTTP requests.
+The HTTP middleware validates the authentication mechanism for protected routes.
 
-It retrieves and validates the session, then makes the authenticated identity available in the request context.
+It retrieves the session and makes the authenticated identity available to the request context.
 
-The middleware must not contain business logic.
+The middleware should remain independent from business logic.
 
-Authorization decisions remain enforced at the appropriate layer of the application so that access control does not rely solely on the HTTP middleware.
+It is responsible for establishing a trusted authentication context before the request reaches the application services.
 
 ## 7. Service
 
-The Service layer remains responsible for orchestrating business operations.
+The Service layer orchestrates business operations.
 
-It coordinates:
+It coordinates authentication-related checks, data persistence, and calls to the Crypto package when required.
 
-```text
-Authorization
-      |
-      v
-Service
- /       \
-v         v
-Repository Crypto
-```
+The same business services should be reusable by:
 
-The Service determines when data must be created, modified, retrieved, or decrypted.
-
-The Repository must not be responsible for encryption or business rules.
-
-### Why this choice?
-
-The same business operations can thus be reused across:
-
-- the HTTP API;
 - the Web interface;
+- the HTTP API;
 - the CLI.
 
-The CLI does not need to duplicate application business logic.
+The Repository should not be responsible for authentication, authorization, or encryption logic.
 
-## 8. Secret Access
+## 8. Repository
 
-Secrets must not be decrypted unnecessarily.
+The Repository layer manages persistence.
 
-An operation retrieving variable metadata must not automatically retrieve its plaintext value.
+It provides access to authentication-related data such as:
 
-Retrieving a decrypted value must be performed through a dedicated operation and require corresponding authorization.
+- the Super Admin account;
+- sessions;
+- API tokens, if required.
 
-### Why this choice?
+It also continues to manage the existing YILY business data.
 
-This minimizes unnecessary exposure of sensitive data and clearly separates:
+The Repository should not handle browser cookies, password verification, or cryptographic operations.
 
-- access to metadata;
-- actual access to the secret value.
+## 9. Crypto
 
-It also remains consistent with the cryptographic versioning already implemented.
+The existing Crypto package remains responsible for encryption and decryption of sensitive application values.
 
-## 9. HTTP API
+It remains independent from authentication.
 
-The API enforces the same authentication and authorization rules as the Web interface.
+The Master Key must not be derived from the user's password and must remain separate from the authentication mechanism.
 
-Requests originating from the Web interface can reuse the session mechanism.
+## 10. Web Interface
 
-For external clients or the CLI communicating with a remote YILY instance, YILY can use **API tokens**.
+The user authenticates directly against the local YILY instance.
 
-Tokens must be:
+After successful authentication:
+
+```text
+User
+  |
+  v
+Login
+  |
+  v
+Authentication
+  |
+  v
+Session created
+  |
+  v
+Secure cookie
+  |
+  v
+Protected requests
+```
+
+Protected requests are validated by the middleware before reaching the relevant service.
+
+CSRF protection should be applied where required by the cookie-based authentication model.
+
+## 11. HTTP API
+
+The API follows the same authentication and authorization rules as the Web interface.
+
+For requests originating from the Web interface, the existing session mechanism can be reused.
+
+If a client such as the CLI needs to communicate with a remote YILY instance, an API token can be used instead.
+
+API tokens should be:
 
 - cryptographically random;
-- associated with a user;
-- scoped to required permissions when applicable;
-- expirable;
-- revocable.
+- associated with the local Super Admin;
+- revocable;
+- optionally expirables;
+- stored as hashes when possible.
 
-Only the hash of the token should be stored when its plaintext value is not required for validation.
+## 12. CLI
 
-### Why this choice?
+The CLI should be able to operate against a local YILY instance without depending on a browser or an external authentication service.
 
-Tokens are better suited for non-browser clients than session cookies.
+For local access, authentication can rely on the local instance and its security boundaries.
 
-They also allow revoking access for a CLI or API client without changing the user's password.
+When the CLI communicates with a remote YILY instance, it should authenticate using a dedicated API token.
 
-## 10. CLI
+The CLI should reuse the same Service layer rather than implementing a separate business logic.
 
-The CLI must be able to operate with a local YILY instance without relying on a browser or an external authentication service.
+The CLI can be distributed as pre-built binaries through native package managers using GoReleaser, avoiding the need for users to compile YILY themselves.
 
-For local access, security relies primarily on:
+## 13. Password Reset
 
-- operating system permissions;
-- local database and file protections;
-- the Master Key management mechanism.
+Password reset must be handled entirely by YILY without SMTP or an external service.
 
-When the CLI communicates with a remote instance, it uses dedicated credentials, such as an API token.
+Since YILY currently has a single Super Admin, the recovery mechanism should be designed around local administrative access to the instance.
 
-The CLI and HTTP API reuse the same business services.
+The reset mechanism should use a temporary, cryptographically random value with:
 
-### Why this choice?
+- limited validity;
+- single use;
+- explicit invalidation after use;
+- session revocation after a successful password reset.
 
-This keeps the CLI lightweight while avoiding the creation of a second authentication system.
+The temporary reset value should not be stored in plaintext when storing its hash is sufficient for validation.
 
-The CLI will be distributed as precompiled binaries via native package managers using **GoReleaser**, so users do not have to compile YILY themselves.
+## 14. Authentication Data
 
-## 11. Password Reset
-
-Password reset must be fully managed by YILY.
-
-No email, SMTP server, or external service is required.
-
-The proposed mechanism is a reset procedure controlled by an **Admin or Super Admin**.
-
-When a reset is triggered:
-
-1. YILY generates a temporary, random secret.
-2. This secret is associated with the target account.
-3. It has a limited validity period.
-4. It can only be used once (single-use).
-5. Its redemption allows setting a new password.
-6. Existing sessions can be revoked.
-7. The reset mechanism is invalidated upon use or expiration.
-
-The temporary secret must not be stored in plaintext when its hash is sufficient for validation.
-
-### Why this choice?
-
-The procedure remains completely self-contained and adheres to the constraint of not depending on SMTP or third-party services.
-
-It also allows precise control over expiration, single-use, and revocation of the recovery mechanism.
-
-## 12. Authentication Data Model
-
-The model can remain intentionally minimal:
+The initial data model can remain minimal:
 
 ```text
 USER
 - ID
 - username / email
 - password_hash
-- role
 - status
 - created_at
 - updated_at
@@ -257,94 +227,88 @@ API_TOKEN
 - ID
 - user_id
 - token_hash
-- permissions
 - expires_at
 - revoked_at
 ```
 
-Business resources must be associated with their owner or access scope when multiple users share a single instance.
+No role field is required at this stage because the installation has only one user: the Super Admin.
 
-## 13. Master Key Protection
+## 15. Master Key Separation
 
-The Master Key remains completely independent of the authentication system.
+The Master Key remains independent from authentication.
 
-It must not be derived from a user's password.
+The user's password is used to authenticate the user, not to encrypt or derive the Master Key.
 
-It must not be stored alongside encrypted secrets without appropriate protection.
+The authentication mechanism therefore does not directly provide access to the Master Key.
 
-The configuration layer should only provide the representation expected by the application. Any transformation required for cryptographic operations must be performed by the component that actually uses the key, rather than by the general configuration package.
-
-### Why this choice?
-
-Compromising a user account must not automatically compromise the Master Key.
-
-This preserves a clear separation between:
+This maintains a clear separation:
 
 ```text
+User Password
+      |
+      v
 Authentication
-      ≠
-Secret Protection
+      |
+      v
+Access to YILY
 ```
 
-## 14. Key Security Safeguards
-
-The initial implementation should notably include:
-
-- Argon2id for password hashing;
-- Server-side sessions for the Web interface;
-- `HttpOnly`, `Secure`, and `SameSite` cookies;
-- Session expiration and revocation;
-- Rate limiting on login attempts;
-- Generic error messages during authentication;
-- Authorization checks before sensitive operations;
-- CSRF protection for cookie-based flows where necessary;
-- Random, expirable, and revocable API tokens;
-- HTTPS for network communications;
-- Zero secrets in logs;
-- Tests covering unauthorized access and authorization bypass attempts;
-- Session revocation following relevant security operations.
-
-## 15. Implementation Scope
-
-Once the proposal is approved, implementation can be organized around dedicated Go components:
+while:
 
 ```text
-Authentication
-    ├── User management
-    ├── Password hashing / verification
-    └── Password reset
-
-Session
-    ├── Session creation
-    ├── Session validation
-    └── Session revocation
-
-Middleware
-    └── Authentication context
-
-Authorization
-    └── Role / permission checks
-
-Service
-    └── Business operations
-
-Repository
-    ├── Users
-    ├── Sessions
-    └── API tokens
-
+Master Key
+      |
+      v
 Crypto
-    └── Existing encryption / decryption
+      |
+      v
+Encrypted Secrets
 ```
 
-This section intentionally does not define the exact Go interfaces or method names yet. These can be defined once the architectural direction is agreed upon.
+## 16. Main Security Decisions
+
+The initial implementation should:
+
+1. Use Argon2id for password hashing.
+2. Use server-side sessions for the Web interface.
+3. Use secure cookie attributes.
+4. Keep authentication and cryptography independent.
+5. Validate authentication before sensitive operations.
+6. Decrypt secrets only when their value is explicitly requested.
+7. Use API tokens for remote CLI/API access when required.
+8. Make sessions and tokens revocable.
+9. Apply login-attempt protection.
+10. Prevent passwords, tokens, Master Keys, and decrypted secrets from appearing in logs.
+11. Use HTTPS for network communication.
+12. Test invalid authentication, expired sessions, revoked sessions, invalid tokens, and unauthorized access.
+
+## 17. Implementation Scope
+
+This document defines the proposed architecture only.
+
+Once the proposal is validated, the concrete implementation can define:
+
+- Go packages and interfaces;
+- authentication services;
+- session management;
+- HTTP middleware;
+- repository methods;
+- authentication routes;
+- CLI authentication flow;
+- password reset flow;
+- security tests.
+
+The exact interfaces and method names should be decided during implementation rather than being imposed by this proposal.
 
 ## Conclusion
 
-This proposal provides YILY with a **local, lightweight, and self-contained** authentication system adapted to its different usage modes.
+The proposed approach keeps YILY lightweight and fully self-managed.
 
-The Web interface uses server-side sessions, the API can use tokens, and the CLI reuses the same business services without introducing a second authentication system.
+The current model is intentionally limited to one user: the default Super Admin. No role or multi-user authorization system is introduced at this stage.
 
-Authorization is decoupled from authentication and takes place before sensitive operations, particularly secret decryption.
+Web authentication uses server-side sessions, while remote CLI/API access can use dedicated API tokens.
 
-Finally, the Master Key and authentication mechanisms remain independent so that compromising a user account does not automatically compromise the cryptographic protection of stored secrets.
+Authentication remains separated from the existing Crypto package and Master Key, allowing each security mechanism to have a focused responsibility.
+
+The architecture can later evolve toward multi-user authorization without requiring the authentication and cryptographic layers to be redesigned.
+```
