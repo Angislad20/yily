@@ -26,6 +26,7 @@
           nilaway
           just
           nodejs
+          nixfmt
         ];
       in
       {

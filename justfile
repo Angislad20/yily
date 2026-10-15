@@ -1,6 +1,7 @@
 alias s := start
 alias l := lint
 alias t := test
+alias fn := format-nix
 
 default:
     just --list
@@ -16,3 +17,7 @@ lint:
 # format and check the server code
 test:
     cd server && go test ./...
+
+# format the nix code
+format-nix:
+   nixfmt ./**/*.nix
