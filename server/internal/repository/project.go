@@ -77,6 +77,6 @@ func (r *projectRepository) GetAll(ctx context.Context) ([]model.Project, error)
 
 // DeleteAll deletes all projects from the database.
 func (r *projectRepository) DeleteAll(ctx context.Context) error {
-	_, err := gorm.G[model.Project](r.DB).Delete(ctx)
+	_, err := gorm.G[model.Project](r.DB).Where("1 = 1").Delete(ctx)
 	return err
 }
