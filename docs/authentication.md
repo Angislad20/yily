@@ -1,140 +1,171 @@
-# Proposal: YILY Authentication
+# YILY — Authentication and Security Implementation Proposal
 
 ## 1. Objective
 
-Implement an authentication system fully managed by YILY, without relying on an identity provider, SMTP, or any external service.
+Implement authentication fully managed by YILY, without relying on an identity provider, SMTP, or any external service.
 
-The first version focuses exclusively on the Web interface and the Super Admin.
+The current scope covers the Web interface with a single account: the Super Admin.
 
-The goal is to keep the solution lightweight while properly protecting access to the instance and sensitive operations.
+The objective is to secure access to YILY and its secrets while limiting the impact of a compromise of any individual layer.
 
 ## 2. Authentication
 
-Access to YILY is handled using:
+The Super Admin authenticates using:
 
-- an email address;
-- a password.
+- email address;
+- strong password.
 
-The password is protected using Argon2id and is never stored in plaintext.
+The strong password is protected using **Argon2id**, with a salt generated using `crypto/rand`.
 
-No external authentication mechanism is required.
+After **5 consecutive failed attempts**, further attempts are temporarily blocked. The account is never automatically deleted, preventing an attacker from permanently locking the Super Admin out.
 
-## 3. Sessions
+Login errors remain generic to avoid revealing whether an account exists.
 
-After successful authentication, YILY creates a server-side session.
+## 3. Web Sessions
 
-The browser receives a session identifier through a secure cookie.
+YILY uses **server-side sessions** instead of JWTs for the Web interface.
 
-The cookie uses, among other protections:
+The session token is generated using `crypto/rand`. Only its **SHA-256 hash** is stored in SQLite.
 
-- `HttpOnly` to prevent direct access from JavaScript;
+Each session has:
+
+- an expiration date;
+- a revocation state;
+- a maximum inactivity period.
+
+A new session is created after each successful authentication to prevent session fixation.
+
+Logging out revokes the session on the server side.
+
+## 4. Cookie and CSRF
+
+The session token is transmitted through a cookie configured with:
+
+- `HttpOnly`;
 - `Secure` when HTTPS is used;
-- `SameSite` to reduce risks from cross-site requests.
+- `SameSite`.
 
-Sessions must support:
+Requests that modify YILY state also use a **CSRF token generated with `crypto/rand`**.
 
-- expiration;
-- revocation;
-- invalidation on logout;
-- invalidation after a password change.
+When YILY is behind a reverse proxy, `X-Forwarded-Proto: https` must be correctly handled to determine the original protocol used by the client.
 
-The session identifier must be renewed after successful authentication to prevent session fixation.
+## 5. Route Protection
 
-Server-side sessions allow YILY to keep control of authentication state and immediately revoke a compromised session.
+Sensitive routes require a valid session.
 
-## 4. CSRF Protection
+This includes:
 
-Cookie-based authentication requires protection against CSRF attacks.
+- reading, creating, modifying, and deleting secrets;
+- changing the strong password;
+- managing PATs;
+- recovery operations.
 
-Requests that modify the application state must therefore be protected, including:
+The middleware validates the session before passing the request to the services.
 
-- creating or modifying a variable;
-- deleting a variable;
-- changing the password;
-- modifying sensitive settings.
+The identity used by the services comes from the validated authentication context and not from a value arbitrarily provided by the client.
 
-The exact CSRF protection mechanism will be defined during implementation.
+## 6. Recovery Code
 
-## 5. Login Attempt Management
+Account recovery does not depend on an external service.
 
-The number of consecutive authentication attempts will be limited to 5.
+A **random Recovery Code** is generated using `crypto/rand`.
 
-After 5 failed attempts, authentication is temporarily blocked.
+The code is never stored in plaintext; only its **SHA-256 hash** is stored.
 
-The account must not be automatically deleted or permanently locked, as this could allow an attacker to intentionally cause a denial of service against the Super Admin.
+When it is used:
 
-Error messages should remain sufficiently generic to avoid unnecessarily revealing account information.
+- a new strong password is set;
+- the Recovery Code is invalidated;
+- all existing sessions are revoked;
+- existing PATs are revoked.
 
-Common situations should also be handled properly, including:
+The Recovery Code can only be used once.
 
-- incorrect password;
-- Caps Lock being enabled;
-- expired session;
-- revoked session;
-- invalid credentials.
+If the Super Admin loses both the strong password and the Recovery Code, no automatic recovery mechanism can bypass these protections.
 
-Rate limiting can be strengthened later if necessary.
+## 7. Personal Access Token (PAT)
 
-## 6. Lost Password
+PATs are intended for clients that need to communicate with a remote YILY instance.
 
-YILY will not depend on any external service for password recovery.
+They are generated using `crypto/rand` and provide **256 bits of entropy**.
 
-We do not propose a recovery mechanism that bypasses authentication.
+Format:
 
-If the Super Admin permanently loses their credentials and has no available way to restore access, YILY must not provide a procedure that bypasses the instance's security mechanisms.
+```text
+yily_<token>
+```
 
-This is an intentional decision: a permanent recovery mechanism would itself introduce another attack surface.
+The complete token is never stored in plaintext. Only its **SHA-256 hash** is stored.
 
-An instance may be restored from a backup when the elements required for restoration are available.
+API authentication uses:
 
-## 7. Personal Access Token — Step 2
+```text
+Authorization: Bearer yily_<token>
+```
 
-Personal Access Tokens (PATs) will be introduced in a second step for use cases requiring token-based authentication, particularly API access.
+PATs can have an expiration date and can be revoked.
 
-The token will be generated using cryptographically secure randomness with 256 bits of entropy.
+## 8. Master Key Protection
 
-It may use a YILY-specific format, for example:
+The Master Key is independent from the strong password and authentication mechanisms.
 
-`yily_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+It is never stored in SQLite, the repository, or logs.
 
-The complete token will not be stored in the database.
+Secrets remain encrypted using **AES-256-GCM**, with a random nonce generated using `crypto/rand`.
 
-YILY will only store its SHA-256 hash.
+The Master Key must be stored separately from SQLite. A key storage mechanism protected by the execution environment, such as a TPM or system keystore, may be used to strengthen this protection.
 
-When a PAT is presented, YILY hashes the provided value and compares it with the stored hash.
+## 9. YILY Isolation
 
-PATs must be revocable and may have an expiration time.
+YILY should not run as `root` when it is not required.
 
-PATs are not used as the primary authentication mechanism for the Web interface.
+The process uses a dedicated system user, for example `yily`, with only the permissions required for its operation.
 
-## 8. Security Principles
+The container:
 
-The solution must ensure that:
+- must not use `privileged`;
+- must not expose the Docker socket;
+- should drop unnecessary Linux capabilities;
+- should limit mounted volumes to those strictly required.
 
-- passwords are never stored in plaintext;
-- session identifiers are generated using cryptographically secure randomness;
-- expired or revoked sessions can no longer be used;
-- a new session is created after authentication;
-- existing sessions are invalidated after a password change;
-- PATs are never stored in plaintext;
-- sensitive secrets are not exposed in logs or error messages;
-- sensitive operations require valid authentication;
-- requests using session cookies are protected against CSRF;
-- network communications use HTTPS when YILY is exposed over a network.
+The objective is to ensure that compromising YILY does not automatically grant `root` privileges.
 
-## 9. Scope
+## 10. SQLite and Sensitive Data
 
-The first step includes:
+SQLite is protected by system-level permissions and is accessible only to the YILY process.
 
-- email and password authentication;
-- password hashing with Argon2id;
-- server-side sessions;
-- secure cookies;
-- session expiration and revocation;
-- CSRF protection;
-- a limit of 5 consecutive authentication attempts;
-- explicit handling of authentication errors.
+Sensitive data is not stored in plaintext when cryptographic protection is required.
 
-PAT support constitutes the second step.
+Authentication tokens (sessions, PATs, and Recovery Codes) are stored as **SHA-256 hashes**.
 
-The goal is to keep authentication minimal and self-contained, adapted to YILY's self-hosted model, without introducing additional mechanisms until they address a real requirement.
+The database alone must therefore not be sufficient to directly recover usable authentication tokens or the Master Key.
+
+## 11. Logs and Errors
+
+Secrets must never appear in logs or error messages:
+
+- strong password;
+- session token;
+- PAT;
+- Recovery Code;
+- Master Key;
+- decrypted secrets.
+
+Security events may be logged without their sensitive values.
+
+## 12. Implementation Order
+
+Implementation can be carried out progressively:
+
+1. Super Admin + strong password + Argon2id
+2. Authentication + 5-attempt limit
+3. Sessions + expiration + revocation
+4. Cookie + CSRF
+5. Middleware + route protection
+6. Recovery Code
+7. PAT
+8. Master Key protection
+9. Non-root execution + container hardening
+10. Security testing and verification of compromise scenarios
+
+The final objective is a complete, lightweight Web authentication system that is independent of external services, with a clear separation between authentication, sessions, secrets, and encryption.
