@@ -31,6 +31,9 @@ func main() {
 	db := adapter.NewDB()
 
 	// Repositories
+	userRepository := repository.NewUserRepository(db)
+	sessionRepository := repository.NewSessionRepository(db)
+	patRepository := repository.NewPATRepository(db)
 	projectRepository := repository.NewProjectRepository(db)
 	environmentRepository := repository.NewEnvironmentRepository(db)
 	variableRepository := repository.NewVariableRepository(db)
@@ -38,12 +41,16 @@ func main() {
 	tagRepository := repository.NewTagRepository(db)
 
 	// Services
+	authService := services.NewAuthService(userRepository, sessionRepository)
+	patService := services.NewPATService(userRepository, patRepository)
 	projectService := services.NewProjectService(projectRepository, environmentRepository)
 	environmentService := services.NewEnvironmentService(environmentRepository)
 	variableService := services.NewVariableService(variableRepository, versionRepository, cfg.MasterKey)
 	tagService := services.NewTagService(tagRepository)
 
 	// Handlers
+	authHandler := handler.NewAuthHandler(authService)
+	patHandler := handler.NewPATHandler(patService)
 	projectHandler := handler.NewProjectHandler(projectService)
 	environmentHandler := handler.NewEnvironmentHandler(environmentService, variableService)
 	variableHandler := handler.NewVariableHandler(variableService)
@@ -64,7 +71,25 @@ func main() {
 	server.Use(middleware.Secure())                                                // Enable security headers
 
 	// Define API routes
-	routes := server.Group("/api/v1")
+	api := server.Group("/api/v1")
+
+	// Public authentication routes
+	api.POST("/auth/setup", authHandler.Setup)
+	api.POST("/auth/login", authHandler.Login)
+
+	// Web session-protected routes (session management and PAT management)
+	sessionRoutes := api.Group("", handler.RequireAuth(authService))
+	sessionRoutes.POST("/auth/logout", authHandler.Logout)
+	sessionRoutes.POST("/pats", patHandler.Create)
+	sessionRoutes.GET("/pats", patHandler.GetAll)
+	sessionRoutes.GET("/pats/:id", patHandler.GetByID)
+	sessionRoutes.DELETE("/pats/:id", patHandler.Revoke)
+
+	// Protected API routes (require a valid server-side session or Bearer PAT)
+	routes := api.Group("", handler.RequireAuth(authService, patService))
+
+	// Protected authentication routes
+	routes.GET("/auth/me", authHandler.Me)
 
 	// Projects
 	routes.POST("/projects", projectHandler.Create)
