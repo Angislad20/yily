@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	SessionCookieName = "yily_session" // SessionCookieName is the HTTP cookie name for the session token.
+	SessionCookieName = "yily_session" // SessionCookieName is the HTTP cookie name storing the raw session token.
 )
 
-// AuthHandler defines the interface for authentication HTTP handlers.
+// AuthHandler defines the interface for Super Admin authentication and session HTTP handlers.
 type AuthHandler interface {
 	Setup(c *echo.Context) error
 	Login(c *echo.Context) error
@@ -22,7 +22,7 @@ type AuthHandler interface {
 	Me(c *echo.Context) error
 }
 
-// authHandler handles HTTP requests for authentication and sessions.
+// authHandler handles HTTP requests for authentication and server-side sessions.
 type authHandler struct {
 	authService services.AuthService
 }
@@ -32,20 +32,27 @@ func NewAuthHandler(authService services.AuthService) AuthHandler {
 	return &authHandler{authService: authService}
 }
 
-// authCredentialsRequest represents the JSON body for setup and login.
-type authCredentialsRequest struct {
+// setupRequest represents the JSON body for creating the initial Super Admin account.
+type setupRequest struct {
+	Name     string `json:"name" validate:"required"`
 	Email    string `json:"email" validate:"required,email"`
 	Password string `json:"password" validate:"required"`
 }
 
-// Setup handles POST /auth/setup to create the initial Super Admin account.
+// loginRequest represents the JSON body for authenticating the Super Admin.
+type loginRequest struct {
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required"`
+}
+
+// Setup handles POST /auth/setup to create the initial Super Admin account with name, email, and strong password.
 func (h *authHandler) Setup(c *echo.Context) error {
-	var req authCredentialsRequest
+	var req setupRequest
 	if !bindAndValidate(c, &req) {
 		return nil
 	}
 
-	user, err := h.authService.Setup(c.Request().Context(), req.Email, req.Password)
+	user, err := h.authService.Setup(c.Request().Context(), req.Name, req.Email, req.Password)
 	if err != nil {
 		return NewHTTPResponse[any](c, httpStatus(err), err.Error(), nil)
 	}
@@ -53,9 +60,9 @@ func (h *authHandler) Setup(c *echo.Context) error {
 	return NewHTTPResponse(c, http.StatusCreated, "Super Admin created successfully", user)
 }
 
-// Login handles POST /auth/login to authenticate the Super Admin and set the session cookie.
+// Login handles POST /auth/login to authenticate the Super Admin, rotate any prior session, and set the HttpOnly session cookie.
 func (h *authHandler) Login(c *echo.Context) error {
-	var req authCredentialsRequest
+	var req loginRequest
 	if err := c.Bind(&req); err != nil {
 		return NewHTTPResponse[any](c, http.StatusBadRequest, "invalid request body", nil)
 	}
@@ -78,7 +85,7 @@ func (h *authHandler) Login(c *echo.Context) error {
 	return NewHTTPResponse(c, http.StatusOK, "Login successful", user)
 }
 
-// Logout handles POST /auth/logout to revoke the session and clear the cookie.
+// Logout handles POST /auth/logout to revoke the current server-side session and expire the client cookie.
 func (h *authHandler) Logout(c *echo.Context) error {
 	var rawToken string
 	if cookie, err := c.Cookie(SessionCookieName); err == nil && cookie != nil {
@@ -86,7 +93,7 @@ func (h *authHandler) Logout(c *echo.Context) error {
 	}
 
 	err := h.authService.Logout(c.Request().Context(), rawToken)
-	clearSessionCookie(c)
+	ClearSessionCookie(c)
 
 	if err != nil {
 		return NewHTTPResponse[any](c, httpStatus(err), err.Error(), nil)
@@ -95,7 +102,7 @@ func (h *authHandler) Logout(c *echo.Context) error {
 	return NewHTTPResponse[any](c, http.StatusOK, "Logout successful", nil)
 }
 
-// Me handles GET /auth/me to return the authenticated Super Admin from context.
+// Me handles GET /auth/me to return the authenticated Super Admin from the request context.
 func (h *authHandler) Me(c *echo.Context) error {
 	user, ok := services.AuthenticatedUserFromContext(c.Request().Context())
 	if !ok {
@@ -105,39 +112,7 @@ func (h *authHandler) Me(c *echo.Context) error {
 	return NewHTTPResponse(c, http.StatusOK, "Authenticated user retrieved successfully", user)
 }
 
-// RequireAuth validates the session cookie or Bearer PAT and attaches the authenticated identity to the request context.
-func RequireAuth(authService services.AuthService, patServices ...services.PATService) echo.MiddlewareFunc {
-	var patService services.PATService
-	if len(patServices) > 0 {
-		patService = patServices[0]
-	}
-
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			if patService != nil && strings.TrimSpace(c.Request().Header.Get(AuthorizationHeader)) != "" {
-				return RequirePAT(patService)(next)(c)
-			}
-
-			cookie, err := c.Cookie(SessionCookieName)
-			if err != nil || cookie == nil || strings.TrimSpace(cookie.Value) == "" {
-				return NewHTTPResponse[any](c, http.StatusUnauthorized, services.ErrUnauthorized.Error(), nil)
-			}
-
-			user, session, err := authService.ValidateSession(c.Request().Context(), cookie.Value)
-			if err != nil {
-				clearSessionCookie(c)
-				return NewHTTPResponse[any](c, http.StatusUnauthorized, services.ErrUnauthorized.Error(), nil)
-			}
-
-			ctx := services.WithAuthenticatedIdentity(c.Request().Context(), user, session)
-			c.SetRequest(c.Request().WithContext(ctx))
-
-			return next(c)
-		}
-	}
-}
-
-// setSessionCookie writes the session token to a secure HttpOnly cookie.
+// setSessionCookie writes the raw session token into a secure HttpOnly SameSite=Lax cookie matching the session's expiration.
 func setSessionCookie(c *echo.Context, rawToken string, session *model.Session) {
 	maxAge := int(session.ExpiresAt.Sub(session.CreatedAt).Seconds())
 	if maxAge <= 0 {
@@ -156,8 +131,8 @@ func setSessionCookie(c *echo.Context, rawToken string, session *model.Session) 
 	})
 }
 
-// clearSessionCookie expires and clears the session cookie on the client.
-func clearSessionCookie(c *echo.Context) {
+// ClearSessionCookie immediately expires and clears the session cookie on the client browser.
+func ClearSessionCookie(c *echo.Context) {
 	http.SetCookie(c.Response(), &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
@@ -170,7 +145,7 @@ func clearSessionCookie(c *echo.Context) {
 	})
 }
 
-// isHTTPSRequest reports whether the request uses HTTPS directly or via X-Forwarded-Proto.
+// isHTTPSRequest reports whether the request uses HTTPS directly via TLS or through a reverse proxy setting X-Forwarded-Proto: https.
 func isHTTPSRequest(c *echo.Context) bool {
 	if c.Request().TLS != nil {
 		return true

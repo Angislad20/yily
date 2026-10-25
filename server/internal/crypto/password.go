@@ -13,20 +13,19 @@ import (
 )
 
 const (
-	argonTime    uint32 = 3
-	argonMemory  uint32 = 64 * 1024
-	argonThreads uint8  = 4
-	argonKeyLen  uint32 = 32
-	argonSaltLen int    = 16
+	argonTime    uint32 = 3         // argonTime is the number of Argon2id iterations (time cost).
+	argonMemory  uint32 = 64 * 1024 // argonMemory is the Argon2id memory cost in KiB (64 MiB).
+	argonThreads uint8  = 4         // argonThreads is the Argon2id parallelism degree (lanes).
+	argonKeyLen  uint32 = 32        // argonKeyLen is the derived Argon2id key length in bytes (256 bits).
+	argonSaltLen int    = 16        // argonSaltLen is the random salt length in bytes (128 bits).
 )
 
 var (
-	ErrEmptyPassword       = errors.New("password cannot be empty")
-	ErrInvalidPasswordHash = errors.New("invalid argon2id password hash format")
-	ErrIncompatibleVersion = errors.New("incompatible argon2 version")
+	ErrEmptyPassword       = errors.New("password cannot be empty")              // ErrEmptyPassword is returned when an empty password is provided for hashing.
+	ErrInvalidPasswordHash = errors.New("invalid argon2id password hash format") // ErrInvalidPasswordHash is returned when a stored PHC hash string is malformed.
 )
 
-// HashPassword hashes a plaintext password with Argon2id and a random salt.
+// HashPassword hashes a plaintext password with Argon2id using a random 16-byte salt and returns its PHC string.
 func HashPassword(password string) (string, error) {
 	if password == "" {
 		return "", ErrEmptyPassword
@@ -46,12 +45,13 @@ func HashPassword(password string) (string, error) {
 		argon2.Version, argonMemory, argonTime, argonThreads, b64Salt, b64Hash), nil
 }
 
-// VerifyPassword verifies a plaintext password against an Argon2id PHC hash in constant time.
+// VerifyPassword parses an Argon2id PHC hash, recomputes the key with its parameters, and compares both in constant time.
 func VerifyPassword(password, encodedHash string) (bool, error) {
 	if password == "" {
 		return false, nil
 	}
 
+	// Expected PHC format: $argon2id$v=19$m=<memory>,t=<time>,p=<threads>$<base64-salt>$<base64-hash>
 	parts := strings.Split(encodedHash, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" {
 		return false, ErrInvalidPasswordHash
@@ -60,9 +60,6 @@ func VerifyPassword(password, encodedHash string) (bool, error) {
 	var version int
 	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil {
 		return false, ErrInvalidPasswordHash
-	}
-	if version != argon2.Version {
-		return false, ErrIncompatibleVersion
 	}
 
 	var memory, timeCost uint32
@@ -86,5 +83,6 @@ func VerifyPassword(password, encodedHash string) (bool, error) {
 
 	actualHash := argon2.IDKey([]byte(password), salt, timeCost, memory, threads, uint32(len(expectedHash)))
 
+	// Compare hashes in constant time to prevent timing side-channel leaks.
 	return subtle.ConstantTimeCompare(expectedHash, actualHash) == 1, nil
 }

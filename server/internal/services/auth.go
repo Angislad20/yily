@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"net/mail"
 	"strings"
 	"sync"
 	"time"
@@ -20,69 +19,68 @@ const (
 )
 
 var (
-	ErrInvalidCredentials = errors.New("invalid email or password")
-	ErrInvalidEmail       = errors.New("invalid email address")
-	ErrWeakPassword       = errors.New("password must be at least 12 characters long")
-	ErrUnauthorized       = errors.New("unauthorized")
-	ErrSessionExpired     = errors.New("session expired")
-	ErrSessionRevoked     = errors.New("session revoked")
+	ErrInvalidCredentials = errors.New("invalid email or password")                  // ErrInvalidCredentials is returned when login email or password verification fails.
+	ErrWeakPassword       = errors.New("password must be at least 12 characters long") // ErrWeakPassword is returned when the provided password is shorter than MinPasswordLength.
+	ErrUnauthorized       = errors.New("unauthorized")                               // ErrUnauthorized is returned when a request lacks a valid session or PAT.
+	ErrSessionExpired     = errors.New("session expired")                            // ErrSessionExpired is returned when a session has exceeded its TTL or idle timeout.
+	ErrSessionRevoked     = errors.New("session revoked")                            // ErrSessionRevoked is returned when a session has been explicitly logged out or rotated.
 )
 
 type authUserContextKey struct{}
 type authSessionContextKey struct{}
 
-// WithAuthenticatedIdentity stores the authenticated User and Session in the context.
+// WithAuthenticatedIdentity stores the authenticated User and Session in the request context.
 func WithAuthenticatedIdentity(ctx context.Context, user *model.User, session *model.Session) context.Context {
 	ctx = context.WithValue(ctx, authUserContextKey{}, user)
 	ctx = context.WithValue(ctx, authSessionContextKey{}, session)
 	return ctx
 }
 
-// AuthenticatedUserFromContext retrieves the authenticated User from the context.
+// AuthenticatedUserFromContext retrieves the authenticated User injected by the auth middleware from the context.
 func AuthenticatedUserFromContext(ctx context.Context) (*model.User, bool) {
 	user, ok := ctx.Value(authUserContextKey{}).(*model.User)
 	return user, ok && user != nil
 }
 
-// AuthenticatedSessionFromContext retrieves the authenticated Session from the context.
+// AuthenticatedSessionFromContext retrieves the authenticated Session injected by the auth middleware from the context.
 func AuthenticatedSessionFromContext(ctx context.Context) (*model.Session, bool) {
 	session, ok := ctx.Value(authSessionContextKey{}).(*model.Session)
 	return session, ok && session != nil
 }
 
-// AuthService defines the interface for authentication and session management.
+// AuthService defines the interface for Super Admin authentication and server-side session management.
 type AuthService interface {
-	Setup(ctx context.Context, email, password string) (*model.User, error)                                                     // Setup creates the initial Super Admin account.
-	Login(ctx context.Context, email, password, existingRawToken string) (string, *model.Session, *model.User, error)           // Login authenticates the Super Admin and issues a new session.
-	ValidateSession(ctx context.Context, rawToken string) (*model.User, *model.Session, error)                                  // ValidateSession verifies a raw session token and returns its identity.
-	Logout(ctx context.Context, rawToken string) error                                                                          // Logout revokes a session by its raw token.
+	Setup(ctx context.Context, name, email, password string) (*model.User, error)                                     // Setup creates the initial Super Admin account.
+	Login(ctx context.Context, email, password, existingRawToken string) (string, *model.Session, *model.User, error) // Login verifies credentials, rotates any prior session, and issues a new session.
+	ValidateSession(ctx context.Context, rawToken string) (*model.User, *model.Session, error)                        // ValidateSession verifies a raw session token against its stored SHA-256 hash and loads the owning user.
+	Logout(ctx context.Context, rawToken string) error                                                                // Logout revokes a server-side session by hashing its raw token.
 }
 
 // AuthConfig holds optional timing parameters for AuthService.
 type AuthConfig struct {
-	SessionTTL  time.Duration
-	IdleTimeout time.Duration
-	NowFunc     func() time.Time
+	SessionTTL  time.Duration      // SessionTTL is the maximum lifetime of a session before forced expiration.
+	IdleTimeout time.Duration      // IdleTimeout is the maximum inactivity period before a session expires.
+	NowFunc     func() time.Time   // NowFunc returns the current time (injectable for deterministic testing).
 }
 
 // authService implements AuthService.
 type authService struct {
-	userRepository    repository.UserRepository
-	sessionRepository repository.SessionRepository
-	sessionTTL        time.Duration
-	idleTimeout       time.Duration
-	nowFunc           func() time.Time
+	userRepository    repository.UserRepository    // userRepository manages Super Admin persistence.
+	sessionRepository repository.SessionRepository // sessionRepository manages server-side session persistence.
+	sessionTTL        time.Duration                // sessionTTL is the absolute session expiration duration.
+	idleTimeout       time.Duration                // idleTimeout is the session inactivity timeout duration.
+	nowFunc           func() time.Time             // nowFunc returns the current UTC timestamp.
 
-	dummyOnce sync.Once
-	dummyHash string
+	dummyOnce sync.Once // dummyOnce ensures dummyHash is computed at most once.
+	dummyHash string    // dummyHash is a pre-computed Argon2id PHC hash used when login email is not found to equalize response time and prevent timing-based email enumeration.
 }
 
-// NewAuthService creates a new AuthService with default session settings.
+// NewAuthService creates a new AuthService with default session TTL and inactivity settings.
 func NewAuthService(userRepository repository.UserRepository, sessionRepository repository.SessionRepository) AuthService {
 	return NewAuthServiceWithConfig(userRepository, sessionRepository, AuthConfig{})
 }
 
-// NewAuthServiceWithConfig creates a new AuthService with custom timing settings.
+// NewAuthServiceWithConfig creates a new AuthService with custom session TTL, idle timeout, and clock function.
 func NewAuthServiceWithConfig(userRepository repository.UserRepository, sessionRepository repository.SessionRepository, cfg AuthConfig) AuthService {
 	ttl := cfg.SessionTTL
 	if ttl <= 0 {
@@ -106,7 +104,7 @@ func NewAuthServiceWithConfig(userRepository repository.UserRepository, sessionR
 	}
 }
 
-// getDummyHash lazily initializes a dummy Argon2id hash to mitigate timing enumeration.
+// getDummyHash lazily computes a dummy Argon2id hash once so unknown-email logins still run Argon2id and take the same time as valid-email logins, preventing timing-based email enumeration.
 func (s *authService) getDummyHash() string {
 	s.dummyOnce.Do(func() {
 		h, err := crypto.HashPassword("dummy-password-for-constant-time-mitigation")
@@ -117,13 +115,8 @@ func (s *authService) getDummyHash() string {
 	return s.dummyHash
 }
 
-// Setup creates the initial Super Admin account with a lowercase email and Argon2id hash.
-func (s *authService) Setup(ctx context.Context, email, password string) (*model.User, error) {
-	normalizedEmail, err := normalizeAndValidateEmail(email)
-	if err != nil {
-		return nil, err
-	}
-
+// Setup creates the single Super Admin account with a normalized lowercase email and an Argon2id password hash.
+func (s *authService) Setup(ctx context.Context, name, email, password string) (*model.User, error) {
 	if len(password) < MinPasswordLength {
 		return nil, ErrWeakPassword
 	}
@@ -134,7 +127,8 @@ func (s *authService) Setup(ctx context.Context, email, password string) (*model
 	}
 
 	user := &model.User{
-		Email:        normalizedEmail,
+		Name:         strings.TrimSpace(name),
+		Email:        normalizeEmail(email),
 		PasswordHash: passwordHash,
 	}
 
@@ -145,7 +139,7 @@ func (s *authService) Setup(ctx context.Context, email, password string) (*model
 	return user, nil
 }
 
-// Login authenticates the Super Admin, rotates any prior session, and stores the new SHA-256 session hash.
+// Login verifies the Super Admin's Argon2id password, revokes any previous session to prevent session fixation, and creates a new SHA-256 hashed session.
 func (s *authService) Login(ctx context.Context, email, password, existingRawToken string) (string, *model.Session, *model.User, error) {
 	normalizedEmail := normalizeEmail(email)
 	if normalizedEmail == "" || password == "" {
@@ -155,6 +149,7 @@ func (s *authService) Login(ctx context.Context, email, password, existingRawTok
 	user, err := s.userRepository.GetByEmail(ctx, normalizedEmail)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
+			// Verify against the dummy Argon2id hash so an unknown email takes the same ~80ms as a wrong password, preventing timing attacks.
 			if dummy := s.getDummyHash(); dummy != "" {
 				_, _ = crypto.VerifyPassword(password, dummy)
 			}
@@ -170,6 +165,7 @@ func (s *authService) Login(ctx context.Context, email, password, existingRawTok
 
 	now := s.nowFunc().UTC()
 
+	// Revoke any existing session sent with the login request to prevent session fixation.
 	if trimmedToken := strings.TrimSpace(existingRawToken); trimmedToken != "" {
 		oldHash := crypto.HashToken(trimmedToken)
 		_ = s.sessionRepository.RevokeByTokenHash(ctx, oldHash, now)
@@ -195,7 +191,7 @@ func (s *authService) Login(ctx context.Context, email, password, existingRawTok
 	return rawToken, session, user, nil
 }
 
-// ValidateSession verifies a raw token's SHA-256 hash, checks revocation and expiration, and refreshes activity.
+// ValidateSession hashes the raw session token with SHA-256, checks revocation and expiration in SQLite, refreshes activity, and loads the owning User.
 func (s *authService) ValidateSession(ctx context.Context, rawToken string) (*model.User, *model.Session, error) {
 	rawToken = strings.TrimSpace(rawToken)
 	if rawToken == "" {
@@ -220,6 +216,7 @@ func (s *authService) ValidateSession(ctx context.Context, rawToken string) (*mo
 		return nil, nil, ErrSessionExpired
 	}
 
+	// Load the User owning this session so handlers can read the authenticated identity from the request context.
 	user, err := s.userRepository.GetByID(ctx, session.UserID)
 	if err != nil {
 		if errors.Is(err, repository.ErrUserNotFound) {
@@ -234,7 +231,7 @@ func (s *authService) ValidateSession(ctx context.Context, rawToken string) (*mo
 	return user, session, nil
 }
 
-// Logout revokes the session matching the SHA-256 hash of the raw token.
+// Logout hashes the raw session token with SHA-256 and marks the matching session as revoked in SQLite.
 func (s *authService) Logout(ctx context.Context, rawToken string) error {
 	rawToken = strings.TrimSpace(rawToken)
 	if rawToken == "" {
@@ -253,27 +250,7 @@ func (s *authService) Logout(ctx context.Context, rawToken string) error {
 	return nil
 }
 
-// normalizeEmail trims whitespace and lowercases an email address.
+// normalizeEmail trims leading/trailing whitespace and converts an email address to lowercase.
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
-}
-
-// normalizeAndValidateEmail normalizes an email address to lowercase and validates its format.
-func normalizeAndValidateEmail(email string) (string, error) {
-	normalized := normalizeEmail(email)
-	if normalized == "" {
-		return "", ErrInvalidEmail
-	}
-
-	parsed, err := mail.ParseAddress(normalized)
-	if err != nil || parsed.Address != normalized || !strings.Contains(normalized, "@") {
-		return "", ErrInvalidEmail
-	}
-
-	parts := strings.Split(normalized, "@")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", ErrInvalidEmail
-	}
-
-	return normalized, nil
 }

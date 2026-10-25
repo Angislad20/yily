@@ -15,6 +15,7 @@ import (
 	"github.com/yannick2009/yily/internal/adapter"
 	"github.com/yannick2009/yily/internal/config"
 	"github.com/yannick2009/yily/internal/handler"
+	appMiddleware "github.com/yannick2009/yily/internal/middleware"
 	"github.com/yannick2009/yily/internal/repository"
 	"github.com/yannick2009/yily/internal/services"
 )
@@ -78,15 +79,14 @@ func main() {
 	api.POST("/auth/login", authHandler.Login)
 
 	// Web session-protected routes (session management and PAT management)
-	sessionRoutes := api.Group("", handler.RequireAuth(authService))
+	sessionRoutes := api.Group("", appMiddleware.RequireAuth(authService))
 	sessionRoutes.POST("/auth/logout", authHandler.Logout)
-	sessionRoutes.POST("/pats", patHandler.Create)
-	sessionRoutes.GET("/pats", patHandler.GetAll)
-	sessionRoutes.GET("/pats/:id", patHandler.GetByID)
-	sessionRoutes.DELETE("/pats/:id", patHandler.Revoke)
+	sessionRoutes.POST("/tokens", patHandler.Create)
+	sessionRoutes.GET("/tokens", patHandler.GetAll)
+	sessionRoutes.DELETE("/tokens/:id", patHandler.Revoke)
 
 	// Protected API routes (require a valid server-side session or Bearer PAT)
-	routes := api.Group("", handler.RequireAuth(authService, patService))
+	routes := api.Group("", appMiddleware.RequireAuth(authService, patService))
 
 	// Protected authentication routes
 	routes.GET("/auth/me", authHandler.Me)

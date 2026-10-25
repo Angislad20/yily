@@ -11,14 +11,14 @@ import (
 )
 
 var (
-	ErrSessionNotFound = errors.New("session not found")
+	ErrSessionNotFound = errors.New("session not found") // ErrSessionNotFound is returned when no session matches the given SHA-256 token hash.
 )
 
-// SessionRepository defines the interface for session persistence.
+// SessionRepository defines the interface for server-side web session persistence.
 type SessionRepository interface {
-	Create(ctx context.Context, session *model.Session) error                           // Create persists a new session.
+	Create(ctx context.Context, session *model.Session) error                           // Create persists a new session storing only its SHA-256 token hash.
 	GetByTokenHash(ctx context.Context, tokenHash string) (*model.Session, error)       // GetByTokenHash retrieves a session by its SHA-256 hash.
-	RevokeByTokenHash(ctx context.Context, tokenHash string, revokedAt time.Time) error // RevokeByTokenHash marks a session as revoked.
+	RevokeByTokenHash(ctx context.Context, tokenHash string, revokedAt time.Time) error // RevokeByTokenHash marks a session as revoked by its SHA-256 hash.
 	TouchActivity(ctx context.Context, sessionID uuid.UUID, activityAt time.Time) error // TouchActivity updates the session's last activity timestamp.
 }
 
@@ -49,7 +49,7 @@ func (r *sessionRepository) GetByTokenHash(ctx context.Context, tokenHash string
 	return &session, nil
 }
 
-// RevokeByTokenHash marks an active session as revoked by its token hash.
+// RevokeByTokenHash marks an active session as revoked by its SHA-256 token hash.
 func (r *sessionRepository) RevokeByTokenHash(ctx context.Context, tokenHash string, revokedAt time.Time) error {
 	res := r.DB.WithContext(ctx).
 		Model(&model.Session{}).
@@ -58,6 +58,7 @@ func (r *sessionRepository) RevokeByTokenHash(ctx context.Context, tokenHash str
 	if res.Error != nil {
 		return res.Error
 	}
+	// If no active row was updated, check whether the session does not exist or was already revoked (idempotent).
 	if res.RowsAffected == 0 {
 		var count int64
 		if err := r.DB.WithContext(ctx).Model(&model.Session{}).Where("token_hash = ?", tokenHash).Count(&count).Error; err != nil {
@@ -70,7 +71,7 @@ func (r *sessionRepository) RevokeByTokenHash(ctx context.Context, tokenHash str
 	return nil
 }
 
-// TouchActivity updates the last_activity_at timestamp of a session.
+// TouchActivity updates the last_activity_at timestamp of a session to track inactivity expiration.
 func (r *sessionRepository) TouchActivity(ctx context.Context, sessionID uuid.UUID, activityAt time.Time) error {
 	_, err := gorm.G[model.Session](r.DB).Where("id = ?", sessionID).Update(ctx, "last_activity_at", activityAt)
 	return err

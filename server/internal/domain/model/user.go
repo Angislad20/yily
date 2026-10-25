@@ -10,6 +10,7 @@ import (
 // User represents the Super Admin account in the system.
 type User struct {
 	ID                   uuid.UUID             `gorm:"primaryKey" json:"id"`                                   // Unique identifier for the user
+	Name                 string                `gorm:"type:varchar(255);not null" json:"name"`                 // Display name of the user
 	Email                string                `gorm:"type:varchar(255);not null;uniqueIndex" json:"email"`    // Normalized (lowercase) email address
 	PasswordHash         string                `gorm:"type:text;not null" json:"-"`                            // Argon2id password hash (never serialized in JSON)
 	CreatedAt            time.Time             `gorm:"autoCreateTime" json:"created_at"`                       // Timestamp when the user was created

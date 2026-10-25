@@ -10,18 +10,18 @@ import (
 )
 
 const (
-	sessionTokenBytes = 32
-	patTokenBytes     = 32
-	PATPrefix         = "yily_"
+	sessionTokenBytesSize = 32      // sessionTokenBytesSize is the entropy size in bytes (256 bits) for session tokens.
+	patTokenBytesSize     = 32      // patTokenBytesSize is the entropy size in bytes (256 bits) for Personal Access Tokens.
+	PATPrefix             = "yily_" // PATPrefix is the mandatory prefix identifying YILY Personal Access Tokens.
 )
 
 var (
-	ErrEmptyToken = errors.New("token cannot be empty")
+	ErrEmptyToken = errors.New("token cannot be empty") // ErrEmptyToken is returned when an empty token is provided.
 )
 
-// GenerateSessionToken generates a random 256-bit token and its SHA-256 hex hash.
+// GenerateSessionToken generates a 256-bit cryptographically random session token and its SHA-256 hex digest for DB storage.
 func GenerateSessionToken() (rawToken string, tokenHash string, err error) {
-	buf := make([]byte, sessionTokenBytes)
+	buf := make([]byte, sessionTokenBytesSize)
 	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
 		return "", "", err
 	}
@@ -31,9 +31,9 @@ func GenerateSessionToken() (rawToken string, tokenHash string, err error) {
 	return rawToken, tokenHash, nil
 }
 
-// GeneratePAT generates a random 256-bit PAT with the "yily_" prefix and its SHA-256 hex hash.
+// GeneratePAT generates a 256-bit cryptographically random PAT prefixed with "yily_" and its SHA-256 hex digest for DB storage.
 func GeneratePAT() (rawToken string, tokenHash string, err error) {
-	buf := make([]byte, patTokenBytes)
+	buf := make([]byte, patTokenBytesSize)
 	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
 		return "", "", err
 	}
@@ -43,7 +43,7 @@ func GeneratePAT() (rawToken string, tokenHash string, err error) {
 	return rawToken, tokenHash, nil
 }
 
-// HashToken returns the SHA-256 hex digest of a raw token.
+// HashToken computes the SHA-256 hex digest of a raw token so plaintext tokens are never stored in the database.
 func HashToken(rawToken string) string {
 	sum := sha256.Sum256([]byte(rawToken))
 	return hex.EncodeToString(sum[:])
