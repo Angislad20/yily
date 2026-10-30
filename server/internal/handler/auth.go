@@ -106,7 +106,17 @@ func (h *authHandler) Logout(c *echo.Context) error {
 	}
 
 	err := h.authService.Logout(c.Request().Context(), rawToken)
-	ClearSessionCookie(c)
+
+	http.SetCookie(c.Response(), &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0).UTC(),
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   isHTTPSRequest(c),
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	if err != nil {
 		return NewHTTPResponse[any](c, httpStatus(err), err.Error(), nil)
@@ -123,20 +133,6 @@ func (h *authHandler) Me(c *echo.Context) error {
 	}
 
 	return NewHTTPResponse(c, http.StatusOK, "Authenticated user retrieved successfully", user)
-}
-
-// ClearSessionCookie immediately expires and clears the session cookie on the client browser.
-func ClearSessionCookie(c *echo.Context) {
-	http.SetCookie(c.Response(), &http.Cookie{
-		Name:     SessionCookieName,
-		Value:    "",
-		Path:     "/",
-		Expires:  time.Unix(0, 0).UTC(),
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   isHTTPSRequest(c),
-		SameSite: http.SameSiteLaxMode,
-	})
 }
 
 // isHTTPSRequest reports whether the request uses HTTPS directly via TLS or through a reverse proxy setting X-Forwarded-Proto: https.

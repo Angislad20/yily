@@ -15,7 +15,7 @@ import (
 	"github.com/yannick2009/yily/internal/adapter"
 	"github.com/yannick2009/yily/internal/config"
 	"github.com/yannick2009/yily/internal/handler"
-	appMiddleware "github.com/yannick2009/yily/internal/middleware"
+	authMiddleware "github.com/yannick2009/yily/internal/middleware"
 	"github.com/yannick2009/yily/internal/repository"
 	"github.com/yannick2009/yily/internal/services"
 )
@@ -72,7 +72,7 @@ func main() {
 	server.Use(middleware.Secure())                                                // Enable security headers
 
 	// Authentication middleware
-	authMiddleware := appMiddleware.RequireAuth(authService, patService)
+	auth := authMiddleware.RequireAuth(authService, patService)
 
 	// Define API routes
 	api := server.Group("/api/v1")
@@ -82,7 +82,7 @@ func main() {
 	api.POST("/auth/login", authHandler.Login)
 
 	// Protected API routes (require a valid server-side session or Bearer PAT)
-	routes := api.Group("", authMiddleware)
+	routes := api.Group("", auth)
 
 	// Authentication and token management
 	routes.POST("/auth/logout", authHandler.Logout)
