@@ -11,11 +11,11 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v5"
-	"github.com/labstack/echo/v5/middleware"
+	echomw "github.com/labstack/echo/v5/middleware"
 	"github.com/yannick2009/yily/internal/adapter"
 	"github.com/yannick2009/yily/internal/config"
 	"github.com/yannick2009/yily/internal/handler"
-	authMiddleware "github.com/yannick2009/yily/internal/middleware"
+	"github.com/yannick2009/yily/internal/middleware"
 	"github.com/yannick2009/yily/internal/repository"
 	"github.com/yannick2009/yily/internal/services"
 )
@@ -64,15 +64,15 @@ func main() {
 	server.Validator = NewValidator()
 
 	// Middleware configuration
-	server.Use(middleware.RequestLogger())                                         // Log incoming requests
-	server.Use(middleware.Recover())                                               // Recover from panics and return a 500 error
-	server.Use(middleware.BodyLimit(1 << 20))                                      // 1 MB
-	server.Use(middleware.ContextTimeout(30 * time.Second))                        // Set a timeout for request context
-	server.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(50.0))) // Rate limiting 50 requests per second
-	server.Use(middleware.Secure())                                                // Enable security headers
+	server.Use(echomw.RequestLogger())                                         // Log incoming requests
+	server.Use(echomw.Recover())                                               // Recover from panics and return a 500 error
+	server.Use(echomw.BodyLimit(1 << 20))                                      // 1 MB
+	server.Use(echomw.ContextTimeout(30 * time.Second))                        // Set a timeout for request context
+	server.Use(echomw.RateLimiter(echomw.NewRateLimiterMemoryStore(50.0)))     // Rate limiting 50 requests per second
+	server.Use(echomw.Secure())                                                // Enable security headers
 
 	// Authentication middleware
-	auth := authMiddleware.RequireAuth(authService, patService)
+	authMiddleware := middleware.RequireAuth(authService, patService)
 
 	// Define API routes
 	api := server.Group("/api/v1")
@@ -82,7 +82,7 @@ func main() {
 	api.POST("/auth/login", authHandler.Login)
 
 	// Protected API routes (require a valid server-side session or Bearer PAT)
-	routes := api.Group("", auth)
+	routes := api.Group("", authMiddleware)
 
 	// Authentication and token management
 	routes.POST("/auth/logout", authHandler.Logout)
