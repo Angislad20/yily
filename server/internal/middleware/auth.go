@@ -14,18 +14,13 @@ const (
 	BearerScheme        = "Bearer"        // BearerScheme is the authentication scheme prefix for PATs.
 )
 
-// RequireAuth validates a Bearer PAT (if present and patService is provided) or the session cookie, and injects the authenticated identity into context.
-func RequireAuth(authService services.AuthService, patServices ...services.PATService) echo.MiddlewareFunc {
-	var patService services.PATService
-	if len(patServices) > 0 {
-		patService = patServices[0]
-	}
-
+// RequireAuth validates a Bearer PAT or the session cookie, and injects the authenticated identity into context.
+func RequireAuth(authService services.AuthService, patService services.PATService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			// When an Authorization header is sent on a PAT-enabled route, authenticate strictly via Bearer PAT.
-			if patService != nil && strings.TrimSpace(c.Request().Header.Get(AuthorizationHeader)) != "" {
-				return RequirePAT(patService)(next)(c)
+			// When an Authorization header is sent, authenticate via Bearer PAT.
+			if strings.TrimSpace(c.Request().Header.Get(AuthorizationHeader)) != "" {
+				return requirePAT(patService)(next)(c)
 			}
 
 			cookie, err := c.Cookie(handler.SessionCookieName)
@@ -47,8 +42,8 @@ func RequireAuth(authService services.AuthService, patServices ...services.PATSe
 	}
 }
 
-// RequirePAT extracts a Bearer PAT from the Authorization header, validates its SHA-256 hash in SQLite, and injects the authenticated identity into context.
-func RequirePAT(patService services.PATService) echo.MiddlewareFunc {
+// requirePAT extracts a Bearer PAT from the Authorization header, validates its SHA-256 hash in SQLite, and injects the authenticated identity into context.
+func requirePAT(patService services.PATService) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			rawToken, ok := extractBearerToken(c.Request().Header.Get(AuthorizationHeader))

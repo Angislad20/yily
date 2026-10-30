@@ -71,6 +71,9 @@ func main() {
 	server.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(50.0))) // Rate limiting 50 requests per second
 	server.Use(middleware.Secure())                                                // Enable security headers
 
+	// Authentication middleware
+	authMiddleware := appMiddleware.RequireAuth(authService, patService)
+
 	// Define API routes
 	api := server.Group("/api/v1")
 
@@ -78,18 +81,15 @@ func main() {
 	api.POST("/auth/setup", authHandler.Setup)
 	api.POST("/auth/login", authHandler.Login)
 
-	// Web session-protected routes (session management and PAT management)
-	sessionRoutes := api.Group("", appMiddleware.RequireAuth(authService))
-	sessionRoutes.POST("/auth/logout", authHandler.Logout)
-	sessionRoutes.POST("/tokens", patHandler.Create)
-	sessionRoutes.GET("/tokens", patHandler.GetAll)
-	sessionRoutes.DELETE("/tokens/:id", patHandler.Revoke)
-
 	// Protected API routes (require a valid server-side session or Bearer PAT)
-	routes := api.Group("", appMiddleware.RequireAuth(authService, patService))
+	routes := api.Group("", authMiddleware)
 
-	// Protected authentication routes
+	// Authentication and token management
+	routes.POST("/auth/logout", authHandler.Logout)
 	routes.GET("/auth/me", authHandler.Me)
+	routes.POST("/tokens", patHandler.Create)
+	routes.GET("/tokens", patHandler.GetAll)
+	routes.DELETE("/tokens/:id", patHandler.Revoke)
 
 	// Projects
 	routes.POST("/projects", projectHandler.Create)

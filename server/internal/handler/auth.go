@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
-	"github.com/yannick2009/yily/internal/domain/model"
 	"github.com/yannick2009/yily/internal/services"
 )
 
@@ -80,7 +79,21 @@ func (h *authHandler) Login(c *echo.Context) error {
 		return NewHTTPResponse[any](c, httpStatus(err), err.Error(), nil)
 	}
 
-	setSessionCookie(c, rawToken, session)
+	maxAge := int(session.ExpiresAt.Sub(session.CreatedAt).Seconds())
+	if maxAge <= 0 {
+		maxAge = int(services.DefaultSessionTTL.Seconds())
+	}
+
+	http.SetCookie(c.Response(), &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    rawToken,
+		Path:     "/",
+		Expires:  session.ExpiresAt,
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   isHTTPSRequest(c),
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	return NewHTTPResponse(c, http.StatusOK, "Login successful", user)
 }
@@ -110,25 +123,6 @@ func (h *authHandler) Me(c *echo.Context) error {
 	}
 
 	return NewHTTPResponse(c, http.StatusOK, "Authenticated user retrieved successfully", user)
-}
-
-// setSessionCookie writes the raw session token into a secure HttpOnly SameSite=Lax cookie matching the session's expiration.
-func setSessionCookie(c *echo.Context, rawToken string, session *model.Session) {
-	maxAge := int(session.ExpiresAt.Sub(session.CreatedAt).Seconds())
-	if maxAge <= 0 {
-		maxAge = int(services.DefaultSessionTTL.Seconds())
-	}
-
-	http.SetCookie(c.Response(), &http.Cookie{
-		Name:     SessionCookieName,
-		Value:    rawToken,
-		Path:     "/",
-		Expires:  session.ExpiresAt,
-		MaxAge:   maxAge,
-		HttpOnly: true,
-		Secure:   isHTTPSRequest(c),
-		SameSite: http.SameSiteLaxMode,
-	})
 }
 
 // ClearSessionCookie immediately expires and clears the session cookie on the client browser.
